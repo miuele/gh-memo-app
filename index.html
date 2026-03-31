@@ -4,13 +4,26 @@
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-		<!-- Makes it look like a native app on iOS -->
+		<!-- Tell the browser this is a PWA -->
+		<link rel="manifest" href="manifest.json">
+		<meta name="theme-color" content="#0066cc">
+
+		<!-- Apple/iOS specific tags to force full-screen standalone mode -->
 		<meta name="apple-mobile-web-app-capable" content="yes">
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 		<meta name="apple-mobile-web-app-title" content="Notes">
+		<link rel="apple-touch-icon" href="https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Note-icon.svg/512px-Note-icon.svg.png">
 
-		<!-- Makes it look like a native app on Android -->
-		<meta name="mobile-web-app-capable" content="yes">
+		<!-- Register the Service Worker -->
+		<script>
+			if ('serviceWorker' in navigator) {
+				window.addEventListener('load', () => {
+					navigator.serviceWorker.register('./sw.js')
+						.then(reg => console.log('Service Worker registered', reg))
+						.catch(err => console.error('Service Worker failed', err));
+				});
+			}
+		</script>
 
 		<title>Local-First Notes</title>
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
