@@ -710,7 +710,8 @@
 				},
 				
 				addPin() {
-				    const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):');
+				    const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
+											AppState.currentFilename || '');
 				    if (!pin) return;
 				    
 				    if (!AppState.pins.includes(pin)) {
