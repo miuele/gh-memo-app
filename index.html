@@ -25,6 +25,9 @@
 
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
 		<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+		<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js"></script>
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 		<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
@@ -59,6 +62,14 @@
 			}
 			button:hover { background: #f0f0f0; }
 			button:disabled { opacity: 0.5; cursor: not-allowed; }
+			button.btn-action {
+				background: #e6f7ff;
+				border: 1px solid var(--accent);
+				color: var(--accent);
+				font-weight: bold;
+				box-shadow: 0 0 5px rgba(0, 102, 204, 0.2);
+			}
+			button.btn-action:hover { background: #d0ebff; }
 			#search-bar {
 				width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box;
 				border: 1px solid var(--border); border-radius: 4px;
@@ -103,6 +114,11 @@
 			#note-viewer code { font-family: monospace; font-size: 14px; }
 			#note-viewer a { color: var(--accent); text-decoration: none; cursor: pointer; }
 			#note-viewer a:hover { text-decoration: underline; }
+			#note-viewer .katex-display { 
+				overflow-x: auto; 
+				overflow-y: hidden; 
+				padding: 10px 0; 
+			}
 
 			#view-toggle {
 				position: absolute; bottom: 20px; right: 20px; width: 56px; height: 56px;
@@ -123,6 +139,27 @@
 			.pin-tag:hover { background: #005bb5; }
 			.pin-rm { font-weight: bold; cursor: pointer; color: #ffcccc; line-height: 1; }
 			.pin-rm:hover { color: white; }
+#settings-panel {
+    flex-grow: 1; width: 100%; box-sizing: border-box; padding: 20px 40px;
+    overflow-y: auto; display: none; background: white;
+}
+.settings-header { 
+    display: flex; justify-content: space-between; align-items: center; 
+    margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; 
+}
+.profile-card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 15px; margin-bottom: 20px;
+    background: #fafafa;
+}
+.profile-card.active { border-color: var(--accent); background: #f0f7ff; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+.form-group { display: flex; flex-direction: column; }
+.form-group label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
+.form-group input { 
+    padding: 8px; border: 1px solid var(--border); border-radius: 4px; 
+    font-family: monospace; font-size: 13px;
+}
+@media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
 		</style>
 	</head>
 	<body>
@@ -156,6 +193,7 @@
 			<div id="editor-container">
 				<textarea id="note-content" disabled placeholder="Select or create a file to start typing..."></textarea>
 				<div id="note-viewer"></div>
+<div id="settings-panel"></div>
 				<button id="view-toggle" onclick="Actions.toggleViewMode()" title="Toggle View/Edit">👁️</button>
 			</div>
 			<div id="status-bar"></div>
@@ -166,15 +204,16 @@
 			   1. CORE STATE & CONFIGURATION
 			===================================================================== */
 			const AppState = {
-renderId: 0,
-				config: {
-					host: localStorage.getItem('gh_host') || 'https://api.github.com',
-					token: localStorage.getItem('gh_token') || '',
-					owner: localStorage.getItem('gh_owner') || '',
-					repo: localStorage.getItem('gh_repo') || '',
-					branch: localStorage.getItem('gh_branch') || 'main',
-				},
-				pins: JSON.parse(localStorage.getItem('notes_pins') || '[]'),
+				renderId: 0,
+				// 1. The Master Directory
+				profiles: JSON.parse(localStorage.getItem('notes_profiles') || '{}'),
+				activeProfileId: localStorage.getItem('notes_active_profile') || null,
+				
+				// 2. The Current Context (Hydrated on boot)
+				config: { host: '', token: '', owner: '', repo: '', branch: '' },
+				pins: [],
+				
+				// UI State
 				isViewMode: false,
 				currentFilename: null,
 				typingTimer: null,
@@ -199,6 +238,7 @@ DOM.fileInput = document.getElementById('file-upload');
 				DOM.deleteBtn = document.getElementById('delete-btn');
 				DOM.statusBar = document.getElementById('status-bar');
 				DOM.viewToggle = document.getElementById('view-toggle');
+DOM.settingsPanel = document.getElementById('settings-panel');
 			}
 
 			/* =====================================================================
@@ -228,8 +268,14 @@ DOM.fileInput = document.getElementById('file-upload');
 			   4. DATABASE SERVICE (IndexedDB Abstraction)
 			===================================================================== */
 			const DBService = {
-				dbName: 'NotesDB',
 				storeName: 'notes',
+				// Dynamically read the database name for the active profile
+				get dbName() {
+					if (!AppState.activeProfileId || !AppState.profiles[AppState.activeProfileId]) {
+						throw new Error("No active profile. Database locked.");
+					}
+					return AppState.profiles[AppState.activeProfileId].dbName;
+				},
 				
 				init() {
 					return new Promise((resolve, reject) => {
@@ -411,12 +457,16 @@ DOM.fileInput = document.getElementById('file-upload');
 					DOM.pushBtn.style.display = 'none';
 					DOM.statusBar.style.display = 'none';
 					DOM.viewToggle.style.display = 'none';
+					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
+					DOM.pushBtn.classList.remove('btn-action');
+					DOM.pullBtn.classList.remove('btn-action');
 				},
 				setEditorActive(filename, content) {
 					AppState.currentFilename = filename;
 					DOM.filenameLabel.innerText = filename;
 					DOM.statusBar.style.display = 'none';
 					DOM.pullBtn.style.display = 'block';
+					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 
 					if (Utils.isImageFile(filename)) {
 						// --- IMAGE MODE ---
@@ -503,27 +553,181 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						li.innerHTML = html;
 						DOM.fileList.appendChild(li);
 					});
-				}
+				},
+				renderSettings() {
+					let html = `<div class="settings-header">
+						<h2>⚙️ Profiles & Settings</h2>
+						<button onclick="Actions.createProfile()" style="background: var(--accent); color: white; border: none;">+ New Profile</button>
+					</div>`;
+
+					for (const [id, profile] of Object.entries(AppState.profiles)) {
+						const isActive = id === AppState.activeProfileId;
+						const c = profile.config;
+						html += `
+						<div class="profile-card ${isActive ? 'active' : ''}">
+							<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+								<h3 style="margin: 0;">${profile.name} ${isActive ? ' <span style="color:var(--accent); font-size: 14px;">(Active)</span>' : ''}</h3>
+								<div>
+									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch to this Profile</button>` : ''}
+									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">Delete</button>
+								</div>
+							</div>
+							<div class="form-grid">
+								<div class="form-group">
+									<label>Host URL (GitHub API or Local Server)</label>
+									<input type="text" id="cfg-host-${id}" value="${c.host}" placeholder="https://api.github.com">
+								</div>
+								<div class="form-group">
+									<label>Personal Access Token</label>
+									<input type="password" id="cfg-token-${id}" value="${c.token}" placeholder="ghp_...">
+								</div>
+								<div class="form-group">
+									<label>Owner (Username)</label>
+									<input type="text" id="cfg-owner-${id}" value="${c.owner}">
+								</div>
+								<div class="form-group">
+									<label>Repository Name</label>
+									<input type="text" id="cfg-repo-${id}" value="${c.repo}">
+								</div>
+								<div class="form-group">
+									<label>Branch</label>
+									<input type="text" id="cfg-branch-${id}" value="${c.branch}">
+								</div>
+							</div>
+							<button onclick="Actions.updateProfileConfig('${id}')">💾 Save Configuration</button>
+						</div>`;
+					}
+					DOM.settingsPanel.innerHTML = html;
+				},
+				updateButtonStates(note) {
+					if (!note) return;
+					const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
+					
+					// Push Button State
+					if (note.is_dirty) {
+						DOM.pushBtn.classList.add('btn-action');
+					} else {
+						DOM.pushBtn.classList.remove('btn-action');
+					}
+
+					// Pull Button State
+					if (hasRemoteUpdate) {
+						DOM.pullBtn.classList.add('btn-action');
+					} else {
+						DOM.pullBtn.classList.remove('btn-action');
+					}
+				},
 			};
 
 			/* =====================================================================
 			   7. ACTIONS (Business Logic & Workflows)
 			===================================================================== */
 			const Actions = {
-				configureGitHub() {
-					const c = AppState.config;
-					c.host = prompt('GitHub Host Name:', c.host) || c.host;
-					c.token = prompt('GitHub Personal Access Token:', c.token) || c.token;
-					c.owner = prompt('GitHub Username:', c.owner) || c.owner;
-					c.repo = prompt('GitHub Repository Name:', c.repo) || c.repo;
-					c.branch = prompt('GitHub Branch:', c.branch) || c.branch;
+				createProfile(name) {
+					if (!name) name = prompt('Enter profile name (e.g., Personal, Work, Local Server):');
+					if (!name) return;
+					
+					const id = 'profile_' + Date.now();
+					AppState.profiles[id] = {
+						name: name,
+						dbName: 'NotesDB_' + id, // Isolated database namespace
+						config: { host: 'https://api.github.com', token: '', owner: '', repo: '', branch: 'main' },
+						pins: []
+					};
+					
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					this.switchProfile(id);
+					this.configureGitHub(); // Prompt for settings immediately
+				},
 
-					localStorage.setItem('gh_host', c.host);
-					localStorage.setItem('gh_token', c.token);
-					localStorage.setItem('gh_owner', c.owner);
-					localStorage.setItem('gh_repo', c.repo);
-					localStorage.setItem('gh_branch', c.branch);
-					UI.showStatus('Configuration saved.', false);
+				switchProfile(profileId) {
+					if (!AppState.profiles[profileId]) return;
+
+					// 1. Update Master State
+					AppState.activeProfileId = profileId;
+					localStorage.setItem('notes_active_profile', profileId);
+					
+					// 2. Hydrate Context
+					const profile = AppState.profiles[profileId];
+					AppState.config = profile.config;
+					AppState.pins = profile.pins || [];
+
+					// 3. Brutally reset the UI to prevent data bleeding
+					UI.resetEditor();
+					DOM.searchBar.value = '';
+					history.replaceState(null, null, window.location.pathname); 
+					
+					// 4. Boot the new environment
+					UI.renderPins();
+					UI.renderFileList();
+					UI.showStatus(`Switched to profile: ${profile.name}`);
+				},
+
+				saveProfile() {
+					if (!AppState.activeProfileId) return;
+					AppState.profiles[AppState.activeProfileId].config = AppState.config;
+					AppState.profiles[AppState.activeProfileId].pins = AppState.pins;
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+				},
+
+				configureGitHub() {
+					UI.resetEditor();
+					AppState.currentFilename = null;
+					history.replaceState(null, null, window.location.pathname);
+					
+					DOM.filenameLabel.innerText = '⚙️ Settings & Profiles';
+					DOM.editor.style.display = 'none';
+					DOM.settingsPanel.style.display = 'block';
+					UI.renderSettings();
+					
+					if (window.innerWidth < 768) DOM.sidebar.classList.add('collapsed');
+				},
+
+				// Add these two new functions:
+				updateProfileConfig(id) {
+					if (!AppState.profiles[id]) return;
+					const c = AppState.profiles[id].config;
+					
+					c.host = document.getElementById(`cfg-host-${id}`).value.trim();
+					c.token = document.getElementById(`cfg-token-${id}`).value.trim();
+					c.owner = document.getElementById(`cfg-owner-${id}`).value.trim();
+					c.repo = document.getElementById(`cfg-repo-${id}`).value.trim();
+					c.branch = document.getElementById(`cfg-branch-${id}`).value.trim();
+					
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					
+					// If they updated the currently active profile, update active memory
+					if (id === AppState.activeProfileId) {
+						AppState.config = c;
+					}
+					UI.showStatus(`Saved config for ${AppState.profiles[id].name}`);
+				},
+
+				deleteProfile(id) {
+					if (Object.keys(AppState.profiles).length <= 1) return alert("You cannot delete your only profile.");
+					
+					const profileName = AppState.profiles[id].name;
+					const dbName = AppState.profiles[id].dbName;
+					
+					if (!confirm(`WARNING: Permanently delete profile "${profileName}" AND wipe all its local data?\n\nThis action cannot be undone.`)) return;
+
+					// 1. Purge the isolated database directly from the browser's storage
+					indexedDB.deleteDatabase(dbName);
+
+					// 2. Remove the profile from memory
+					delete AppState.profiles[id];
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+
+					// 3. UI Routing
+					if (AppState.activeProfileId === id) {
+						// Fallback to the first available profile if we deleted the active one
+						const fallbackId = Object.keys(AppState.profiles)[0];
+						this.switchProfile(fallbackId);
+						this.configureGitHub(); // Re-open settings to show the updated list
+					} else {
+						// We deleted a background profile, just re-render the list
+						UI.renderSettings();
+					}
 				},
 
 				async openFile(filename, skipHistory = false) {
@@ -541,6 +745,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					}
 
 					UI.setEditorActive(filename, note.content);
+					UI.updateButtonStates(note);
 					UI.renderFileList(DOM.searchBar.value, false);
 					
 					// If the user is currently in View Mode, instantly render the new file
@@ -613,6 +818,7 @@ async handleFileUpload(event) {
 							note.content = DOM.editor.value;
 							note.is_dirty = true;
 							await DBService.put(note);
+							UI.updateButtonStates(note);
 
 							AppState.syncChannel.postMessage({ type: 'LOCAL_EDIT', filename: AppState.currentFilename });
 							UI.renderFileList(DOM.searchBar.value, false);
@@ -681,6 +887,10 @@ async handleFileUpload(event) {
 								await DBService.put(localNote);
 							}
 						}
+						if (AppState.currentFilename) {
+							const currentNote = await DBService.get(AppState.currentFilename);
+							UI.updateButtonStates(currentNote);
+						}
 						UI.showStatus('File list updated.');
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -694,12 +904,6 @@ async handleFileUpload(event) {
 
 					try {
 						let localNote = await DBService.get(filename);
-
-						if (localNote && localNote.last_synced_sha === localNote.remote_sha) {
-						    if (!localNote.is_dirty) {
-								return UI.showStatus(`"${filename}" is already up to date.`);
-						    }
-						}
 
 						UI.showStatus(`Pulling ${filename}...`);
 						const isImage = Utils.isImageFile(filename);
@@ -752,6 +956,7 @@ async handleFileUpload(event) {
 
 						await DBService.put(localNote);
 						UI.setEditorActive(filename, localNote.content);
+						UI.updateButtonStates(localNote);
 						UI.showStatus(`Successfully pulled ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 						UI.renderFileList(DOM.searchBar.value, false);
@@ -797,6 +1002,7 @@ async pushFile() {
 						note.remote_sha = responseData.content.sha;
 						note.is_dirty = false;
 						await DBService.put(note);
+						UI.updateButtonStates(note);
 
 						UI.showStatus(`Successfully pushed ${filename}.`);
 						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
@@ -807,22 +1013,22 @@ async pushFile() {
 				},
 				
 				addPin() {
-				    const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
-											AppState.currentFilename || '');
-				    if (!pin) return;
-				    
-				    if (!AppState.pins.includes(pin)) {
-				        AppState.pins.push(pin);
-				        localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
-				        UI.renderPins();
-				    }
+					const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
+						AppState.currentFilename || '');
+					if (!pin) return;
+					
+					if (!AppState.pins.includes(pin)) {
+						AppState.pins.push(pin);
+						this.saveProfile(); // <--- Changed
+						UI.renderPins();
+					}
 				},
 				
 				removePin(pin, event) {
-				    event.stopPropagation(); // Prevent the click from also triggering the pin action
-				    AppState.pins = AppState.pins.filter(p => p !== pin);
-				    localStorage.setItem('notes_pins', JSON.stringify(AppState.pins));
-				    UI.renderPins();
+					event.stopPropagation();
+					AppState.pins = AppState.pins.filter(p => p !== pin);
+					this.saveProfile(); // <--- Changed
+					UI.renderPins();
 				},
 				
 				async handlePinClick(pin) {
@@ -909,9 +1115,38 @@ async pushFile() {
 			};
 
 			window.onload = () => {
+				if (typeof marked !== 'undefined' && typeof window.markedKatex !== 'undefined') {
+					marked.use(window.markedKatex({
+						throwOnError: false, // Prevents a syntax error from crashing the whole render loop
+						output: 'html'       // Renders pure HTML to avoid needing extra font logic
+					}));
+				}
+
 				initDOM();
 
-				UI.renderPins();
+				// --- MIGRATION SCRIPT ---
+				if (Object.keys(AppState.profiles).length === 0) {
+					// User is upgrading from single-tenant. Wrap existing keys into a default profile.
+					AppState.profiles['default'] = {
+						name: "Default Profile",
+						dbName: "NotesDB", // CRITICAL: This maps back to the old database to preserve data!
+						config: {
+							host: localStorage.getItem('gh_host') || 'https://api.github.com',
+							token: localStorage.getItem('gh_token') || '',
+							owner: localStorage.getItem('gh_owner') || '',
+							repo: localStorage.getItem('gh_repo') || '',
+							branch: localStorage.getItem('gh_branch') || 'main'
+						},
+						pins: JSON.parse(localStorage.getItem('notes_pins') || '[]')
+					};
+					
+					AppState.activeProfileId = 'default';
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+					localStorage.setItem('notes_active_profile', 'default');
+				}
+
+				// Hydrate the active context BEFORE attempting to load any files
+				Actions.switchProfile(AppState.activeProfileId);
 
 				// 1. Deep Link Boot Sequence
 				const hash = window.location.hash.substring(1);
