@@ -419,6 +419,159 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 			};
 
 			/* =====================================================================
+			   5b. DROPBOX API SERVICE
+			===================================================================== */
+			const DropboxService = {
+				getHeaders(isContentEndpoint = false) {
+					if (!AppState.config.token) throw new Error('Dropbox token missing.');
+					const headers = { 'Authorization': `Bearer ${AppState.config.token}` };
+					
+					// RPC calls (like list_folder) MUST have application/json
+					// Content calls (upload/download) MUST NOT have application/json
+					if (!isContentEndpoint) {
+						headers['Content-Type'] = 'application/json';
+					} else {
+						headers['Content-Type'] = 'application/octet-stream';
+					}
+					return headers;
+				},
+
+				formatPath(filename) { return filename.startsWith('/') ? filename : `/${filename}`; },
+
+				async apiFetch(url, initOptions = {}, isContentEndpoint = false, customHeaders = {}) {
+					const headers = this.getHeaders(isContentEndpoint);
+					Object.assign(headers, customHeaders);
+					
+					// STALKER FIX: Dropbox /download strictly forbids Content-Type.
+					if (url.includes('/download')) delete headers['Content-Type'];
+
+					initOptions.headers = headers;
+					let res = await fetch(url, initOptions);
+					
+					if (res.status === 401 && AppState.config.refreshToken) {
+						await this.refreshAccessToken();
+						const retryHeaders = this.getHeaders(isContentEndpoint);
+						Object.assign(retryHeaders, customHeaders);
+						if (url.includes('/download')) delete retryHeaders['Content-Type'];
+						initOptions.headers = retryHeaders;
+						res = await fetch(url, initOptions);
+					}
+					return res;
+				},
+
+				async refreshAccessToken() {
+					const { appKey, appSecret, refreshToken } = AppState.config;
+					const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: new URLSearchParams({
+							refresh_token: refreshToken,
+							grant_type: 'refresh_token',
+							client_id: appKey,
+							client_secret: appSecret
+						})
+					});
+					if (!res.ok) throw new Error('Refresh failed.');
+					const data = await res.json();
+					AppState.config.token = data.access_token;
+					AppState.profiles[AppState.activeProfileId].config = AppState.config;
+					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+				},
+
+				async getTree() {
+					let url = 'https://api.dropboxapi.com/2/files/list_folder';
+					let payload = { path: "", recursive: true, limit: 1000 };
+					let allEntries = [];
+					let hasMore = true;
+
+					while (hasMore) {
+						const res = await this.apiFetch(url, { method: 'POST', body: JSON.stringify(payload) });
+						if (!res.ok) throw new Error('Failed to fetch Dropbox folder tree.');
+						const data = await res.json();
+						allEntries = allEntries.concat(data.entries);
+
+						if (data.has_more) {
+							url = 'https://api.dropboxapi.com/2/files/list_folder/continue';
+							payload = { cursor: data.cursor };
+						} else hasMore = false;
+					}
+
+					return { 
+						tree: allEntries.filter(i => i['.tag'] === 'file').map(i => ({ 
+							path: i.path_display.substring(1), 
+							sha: i.rev, 
+							type: 'blob',
+							size: i.size // <--- FIX: Size mapped so the 5MB filter doesn't break
+						})) 
+					};
+				},
+
+				async getFile(filename) {
+					const customHeaders = { 'Dropbox-API-Arg': JSON.stringify({ path: this.formatPath(filename) }) };
+					const res = await this.apiFetch('https://content.dropboxapi.com/2/files/download', { method: 'POST' }, true, customHeaders);
+					const rev = JSON.parse(res.headers.get('Dropbox-API-Result')).rev;
+					
+					if (Utils.isImageFile(filename)) {
+						const rawBlob = await res.blob();
+						const ext = filename.split('.').pop().toLowerCase();
+						
+						// Browsers are incredibly strict about MIME types for rendering.
+						let mimeType = `image/${ext}`;
+						if (ext === 'svg') mimeType = 'image/svg+xml';
+						if (ext === 'jpg') mimeType = 'image/jpeg';
+						
+						return new Blob([rawBlob], { type: mimeType });
+					}
+					
+					return { content: Utils.utoa(await res.text()), sha: rev };
+				},
+
+				async putFile(filename, base64Content, sha) {
+					const binaryString = atob(base64Content);
+					const bytes = new Uint8Array(binaryString.length);
+					for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+
+					const customHeaders = {
+						'Dropbox-API-Arg': JSON.stringify({
+							path: this.formatPath(filename),
+							mode: sha ? { '.tag': 'update', update: sha } : { '.tag': 'add' },
+							strict_conflict: true
+						})
+					};
+
+					const res = await this.apiFetch('https://content.dropboxapi.com/2/files/upload', { 
+						method: 'POST', 
+						body: bytes 
+					}, true, customHeaders);
+
+					if (res.status === 409) throw new Error("Conflict: Pull first.");
+					if (!res.ok) {
+						const err = await res.json();
+						throw new Error(err.error_summary || "Upload failed");
+					}
+					return { content: { sha: (await res.json()).rev } };
+				},
+				async deleteFile(filename) {
+					const url = 'https://api.dropboxapi.com/2/files/delete_v2';
+					const payload = { path: this.formatPath(filename) };
+					const res = await this.apiFetch(url, { method: 'POST', body: JSON.stringify(payload) });
+					if (!res.ok && res.status !== 404) throw new Error("Dropbox deletion failed.");
+				}
+			};
+			/* =====================================================================
+			   5c. SYNC PROXY SERVICE
+			===================================================================== */
+			const SyncService = {
+				get active() {
+					return AppState.config.provider === 'dropbox' ? DropboxService : GitHubService;
+				},
+				getTree: () => SyncService.active.getTree(),
+				getFile: (filename) => SyncService.active.getFile(filename),
+				putFile: (filename, content, sha) => SyncService.active.putFile(filename, content, sha),
+				deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha)
+			};
+
+			/* =====================================================================
 			   6. UI CONTROLLER (Visual Updates)
 			===================================================================== */
 			const UI = {
@@ -584,23 +737,49 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 								</div>
 							</div>
 							<div class="form-grid">
-								<div class="form-group">
-									<label>Host URL (GitHub API or Local Server)</label>
-									<input type="text" id="cfg-host-${id}" value="${c.host}" placeholder="https://api.github.com">
+								<div class="form-group" style="grid-column: 1 / -1;">
+									<label>Storage Provider</label>
+									<select id="cfg-provider-${id}" onchange="UI.toggleProviderFields('${id}')" style="padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+										<option value="github" ${c.provider !== 'dropbox' ? 'selected' : ''}>GitHub</option>
+										<option value="dropbox" ${c.provider === 'dropbox' ? 'selected' : ''}>Dropbox (App Folder)</option>
+									</select>
 								</div>
-								<div class="form-group">
-									<label>Personal Access Token</label>
+								
+								<!-- Dropbox Only Fields -->
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
+									<label>App Key</label>
+									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}">
+								</div>
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
+									<label>App Secret</label>
+									<input type="password" id="cfg-dbx-secret-${id}" value="${c.appSecret || ''}">
+								</div>
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 10px;">
+									<button onclick="Actions.linkDropbox('${id}')">🔗 1. Get Auth Code</button>
+									<button onclick="Actions.exchangeDropboxCode('${id}')" style="background: var(--accent); color: white; border: none;">🔑 2. Link Account</button>
+									<span style="font-size: 12px; color: #666; margin-left: 10px; align-self: center;">
+										Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}
+									</span>
+								</div>
+
+								<!-- GitHub Only Fields -->
+								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
+									<label>Access Token</label>
 									<input type="password" id="cfg-token-${id}" value="${c.token}" placeholder="ghp_...">
 								</div>
-								<div class="form-group">
+								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
+									<label>Host URL</label>
+									<input type="text" id="cfg-host-${id}" value="${c.host}">
+								</div>
+								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
 									<label>Owner (Username)</label>
 									<input type="text" id="cfg-owner-${id}" value="${c.owner}">
 								</div>
-								<div class="form-group">
+								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
 									<label>Repository Name</label>
 									<input type="text" id="cfg-repo-${id}" value="${c.repo}">
 								</div>
-								<div class="form-group">
+								<div class="form-group gh-only-${id}" style="display: ${c.provider === 'dropbox' ? 'none' : 'flex'};">
 									<label>Branch</label>
 									<input type="text" id="cfg-branch-${id}" value="${c.branch}">
 								</div>
@@ -609,6 +788,18 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 						</div>`;
 					}
 					DOM.settingsPanel.innerHTML = html;
+				},
+				toggleProviderFields(id) {
+					const provider = document.getElementById(`cfg-provider-${id}`).value;
+					const dbxFields = document.querySelectorAll(`.dbx-only-${id}`);
+					const ghFields = document.querySelectorAll(`.gh-only-${id}`);
+					if (provider === 'dropbox') {
+						dbxFields.forEach(el => el.style.display = 'flex');
+						ghFields.forEach(el => el.style.display = 'none');
+					} else {
+						dbxFields.forEach(el => el.style.display = 'none');
+						ghFields.forEach(el => el.style.display = 'flex');
+					}
 				},
 			};
 
@@ -623,8 +814,15 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					const id = 'profile_' + Date.now();
 					AppState.profiles[id] = {
 						name: name,
-						dbName: 'NotesDB_' + id, // Isolated database namespace
-						config: { host: 'https://api.github.com', token: '', owner: '', repo: '', branch: 'main' },
+						dbName: 'NotesDB_' + id, 
+						config: { 
+							provider: 'github', // <--- New Field
+							host: 'https://api.github.com', 
+							token: '', 
+							owner: '', 
+							repo: '', 
+							branch: 'main' 
+						},
 						pins: []
 					};
 					
@@ -681,18 +879,21 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					if (!AppState.profiles[id]) return;
 					const c = AppState.profiles[id].config;
 					
+					c.provider = document.getElementById(`cfg-provider-${id}`).value; // Capture Provider
 					c.host = document.getElementById(`cfg-host-${id}`).value.trim();
-					c.token = document.getElementById(`cfg-token-${id}`).value.trim();
 					c.owner = document.getElementById(`cfg-owner-${id}`).value.trim();
 					c.repo = document.getElementById(`cfg-repo-${id}`).value.trim();
 					c.branch = document.getElementById(`cfg-branch-${id}`).value.trim();
 					
+					// FIX: Only overwrite the token manually if GitHub is the active provider.
+					// Dropbox manages its own token via the OAuth handshake.
+					if (c.provider === 'github') {
+						c.token = document.getElementById(`cfg-token-${id}`).value.trim();
+					}
+					
 					localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
 					
-					// If they updated the currently active profile, update active memory
-					if (id === AppState.activeProfileId) {
-						AppState.config = c;
-					}
+					if (id === AppState.activeProfileId) AppState.config = c;
 					UI.showStatus(`Saved config for ${AppState.profiles[id].name}`);
 				},
 
@@ -795,6 +996,54 @@ async handleFileUpload(event) {
     AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
     this.openFile(filename);
 },
+				linkDropbox(id) {
+					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
+					if (!key) return alert("Please enter your App Key first.");
+					
+					// Opens the Dropbox approval page asking for offline access
+					const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&token_access_type=offline`;
+					window.open(authUrl, '_blank');
+				},
+
+				async exchangeDropboxCode(id) {
+					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
+					const secret = document.getElementById(`cfg-dbx-secret-${id}`).value.trim();
+					const code = prompt("Paste the Authorization Code from Dropbox:");
+					
+					if (!code || !key || !secret) return alert("Missing Code, Key, or Secret.");
+
+					UI.showStatus("Linking Dropbox...");
+					try {
+						const credentials = btoa(`${key}:${secret}`);
+						const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+							method: 'POST',
+							headers: {
+								'Content-Type': 'application/x-www-form-urlencoded',
+								'Authorization': `Basic ${credentials}`
+							},
+							body: new URLSearchParams({ code: code, grant_type: 'authorization_code' })
+						});
+
+						const data = await res.json();
+						if (!res.ok) throw new Error(data.error_description || "Auth failed");
+
+						// Save everything to the profile
+						const profile = AppState.profiles[id];
+						profile.config.provider = 'dropbox'; // <--- FIX: Lock the provider state
+						profile.config.appKey = key;
+						profile.config.appSecret = secret;
+						profile.config.token = data.access_token;
+						profile.config.refreshToken = data.refresh_token; // The holy grail
+						
+						localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+						if (id === AppState.activeProfileId) AppState.config = profile.config;
+						
+						UI.showStatus("Dropbox linked successfully! You never have to do this again.");
+						UI.renderSettings(); // Refresh UI
+					} catch (err) {
+						UI.showStatus(`Linking failed: ${err.message}`, true);
+					}
+				},
 				handleTyping() {
 					if (!AppState.currentFilename) return;
 					clearTimeout(AppState.typingTimer);
@@ -837,8 +1086,8 @@ async handleFileUpload(event) {
 
 					try {
 						if (note.last_synced_sha) {
-							UI.showStatus(`Deleting ${filename} from GitHub...`);
-							await GitHubService.deleteFile(filename, note.last_synced_sha);
+							UI.showStatus(`Deleting ${filename} remotely...`);
+							await SyncService.deleteFile(filename, note.last_synced_sha);
 						}
 						await DBService.delete(filename);
 						UI.resetEditor();
@@ -853,8 +1102,8 @@ async handleFileUpload(event) {
 
 				async refreshTree() {
 					try {
-						UI.showStatus('Refreshing file list from GitHub...');
-						const treeData = await GitHubService.getTree();
+						UI.showStatus('Refreshing file list remotely...');
+						const treeData = await SyncService.getTree();
 
 						// Update filter to allow images under 5MB
 						const files = treeData.tree.filter(item => {
@@ -891,7 +1140,7 @@ async handleFileUpload(event) {
 						const isImage = Utils.isImageFile(filename);
 						
 						// 3. Proceed with the network request
-						const fileResponse = await GitHubService.getFile(filename);
+						const fileResponse = await SyncService.getFile(filename);
 
 						// Fallback initialization just in case the file wasn't in IndexedDB yet
 						if (!localNote) {
@@ -977,7 +1226,7 @@ async pushFile() {
 							base64Content = Utils.utoa(String(note.content));
 						}
 
-						const responseData = await GitHubService.putFile(filename, base64Content, note.last_synced_sha);
+						const responseData = await SyncService.putFile(filename, base64Content, note.last_synced_sha);
 
 						note.last_synced_sha = responseData.content.sha;
 						note.remote_sha = responseData.content.sha;
