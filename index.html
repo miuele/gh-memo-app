@@ -218,7 +218,7 @@
 			const DOM = {};
 			function initDOM() {
 				DOM.sidebar = document.getElementById('sidebar');
-DOM.fileInput = document.getElementById('file-upload');
+				DOM.fileInput = document.getElementById('file-upload');
 				DOM.pinContainer = document.getElementById('pin-container');
 				DOM.searchBar = document.getElementById('search-bar');
 				DOM.fileList = document.getElementById('file-list');
@@ -230,7 +230,7 @@ DOM.fileInput = document.getElementById('file-upload');
 				DOM.deleteBtn = document.getElementById('delete-btn');
 				DOM.statusBar = document.getElementById('status-bar');
 				DOM.viewToggle = document.getElementById('view-toggle');
-DOM.settingsPanel = document.getElementById('settings-panel');
+				DOM.settingsPanel = document.getElementById('settings-panel');
 			}
 
 			/* =====================================================================
@@ -240,6 +240,7 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 				utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
 				atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0)))),
 				isImageFile: (filename) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(filename || ''),
+				isPdfFile: (filename) => /\.pdf$/i.test(filename || ''),
 				resolvePath: (basePath, relativePath) => {
 					// Ignore external web links and base64 data URIs
 					if (relativePath.match(/^(http|https|data:|mailto:|#)/i)) return relativePath;
@@ -364,20 +365,21 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					const { host, owner, repo } = AppState.config;
 					const url = `${host}/repos/${owner}/${repo}/contents/${filename}`;
 					const isImage = Utils.isImageFile(filename);
+					const isPdf = Utils.isPdfFile(filename);
 
 					const headers = this.getHeaders();
-					if (isImage) headers['Accept'] = 'application/vnd.github.raw';
+					if (isImage || isPdf) headers['Accept'] = 'application/vnd.github.raw';
 
 					const res = await fetch(url, { headers, cache: 'no-store' });
 					if (!res.ok) throw new Error('Failed to fetch file. It may have been deleted remotely.');
 
-					if (isImage) {
+					if (isImage || isPdf) {
 						const rawBlob = await res.blob();
 						const ext = filename.split('.').pop().toLowerCase();
 
 						// Browsers are incredibly strict about SVG MIME types.
 						// We must manually stamp the Blob with the correct type.
-						let mimeType = `image/${ext}`;
+						let mimeType = isPdf ? 'application/pdf' : `image/${ext}`;
 						if (ext === 'svg') mimeType = 'image/svg+xml';
 						if (ext === 'jpg') mimeType = 'image/jpeg';
 
@@ -510,13 +512,15 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					const customHeaders = { 'Dropbox-API-Arg': JSON.stringify({ path: this.formatPath(filename) }) };
 					const res = await this.apiFetch('https://content.dropboxapi.com/2/files/download', { method: 'POST' }, true, customHeaders);
 					const rev = JSON.parse(res.headers.get('Dropbox-API-Result')).rev;
+					const isImage = Utils.isImageFile(filename)
+					const isPdf = Utils.isPdfFile(filename);
 					
-					if (Utils.isImageFile(filename)) {
+					if (isImage || isPdf) {
 						const rawBlob = await res.blob();
 						const ext = filename.split('.').pop().toLowerCase();
 						
 						// Browsers are incredibly strict about MIME types for rendering.
-						let mimeType = `image/${ext}`;
+						let mimeType = isPdf ? 'application/pdf' : `image/${ext}`;
 						if (ext === 'svg') mimeType = 'image/svg+xml';
 						if (ext === 'jpg') mimeType = 'image/jpeg';
 						
@@ -627,19 +631,30 @@ DOM.settingsPanel = document.getElementById('settings-panel');
 					DOM.pullBtn.style.display = 'block';
 					if (DOM.settingsPanel) DOM.settingsPanel.style.display = 'none';
 
-					if (Utils.isImageFile(filename)) {
+					const isImage = Utils.isImageFile(filename);
+					const isPdf = Utils.isPdfFile(filename);
+
+					if (isImage || isPdf) {
 						// --- IMAGE MODE ---
 						DOM.viewToggle.style.display = 'none';
 						DOM.editor.style.display = 'none';
 						DOM.editor.value = ''; // Free memory
-    DOM.pushBtn.style.display = 'block';    
-    DOM.deleteBtn.style.display = 'block';  
-						DOM.viewer.style.display = 'flex';
+						DOM.pushBtn.style.display = 'block';    
+						DOM.deleteBtn.style.display = 'block';  
+						DOM.viewer.style.display = 'block';
 
 						if (content instanceof Blob) {
 							const objectUrl = URL.createObjectURL(content);
-							DOM.viewer.innerHTML = `<img src="${objectUrl}" style="max-width: 100%; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">`;
-							DOM.viewer.querySelector('img').onload = () => URL.revokeObjectURL(objectUrl);
+							if (isImage) {
+								DOM.viewer.innerHTML = `
+									<div style="width:100%; display: flex; justify-content:center; padding: 20px 0;">
+										<img src="${objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+									</div>`;
+								DOM.viewer.querySelector('img').onload = () => URL.revokeObjectURL(objectUrl);
+							} else if (isPdf) {
+								DOM.viewer.innerHTML = `
+									<iframe src="${objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></iframe>`;
+							}
 						} else {
 							DOM.viewer.innerHTML = `<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;"><i>Image placeholder. Click "⬇️ Pull File" to download.</i></div>`;
 						}
@@ -885,7 +900,7 @@ async renderFileList(searchTerm = '', deepSearch = false) {
 					c.repo = document.getElementById(`cfg-repo-${id}`).value.trim();
 					c.branch = document.getElementById(`cfg-branch-${id}`).value.trim();
 					
-					// FIX: Only overwrite the token manually if GitHub is the active provider.
+					// Only overwrite the token manually if GitHub is the active provider.
 					// Dropbox manages its own token via the OAuth handshake.
 					if (c.provider === 'github') {
 						c.token = document.getElementById(`cfg-token-${id}`).value.trim();
@@ -973,12 +988,12 @@ async handleFileUpload(event) {
     const existing = await DBService.get(filename);
     if (existing && !confirm(`Overwrite existing local file "${filename}"?`)) return;
 
-    const isImage = Utils.isImageFile(filename);
+    const isBinary = Utils.isImageFile(filename) || Utils.isPdfFile(filename);
     let content;
 
-    if (isImage) {
+    if (isBinary) {
         // A File object is a Blob. We ensure it has the correct MIME type.
-        content = new Blob([file], { type: file.type });
+        content = new Blob([file], { type: file.type || (Utils.isPdfFile(filename) ? 'application/pdf' : '' )});
     } else {
         // Automatically extract raw text for .md, .txt, .csv, etc.
         content = await file.text();
@@ -1029,7 +1044,7 @@ async handleFileUpload(event) {
 
 						// Save everything to the profile
 						const profile = AppState.profiles[id];
-						profile.config.provider = 'dropbox'; // <--- FIX: Lock the provider state
+						profile.config.provider = 'dropbox';
 						profile.config.appKey = key;
 						profile.config.appSecret = secret;
 						profile.config.token = data.access_token;
@@ -1108,7 +1123,7 @@ async handleFileUpload(event) {
 						// Update filter to allow images under 5MB
 						const files = treeData.tree.filter(item => {
 							if (item.type !== 'blob') return false;
-							const isTextLike = /\.(txt|md|csv|json|xml|html|css|js|ts|py|yml|yaml|ini|env|sh|c|cpp|h)$/i.test(item.path);
+							const isTextLike = /\.(txt|md|csv|json|xml|html|css|js|ts|py|yml|yaml|ini|env|sh|c|cpp|h|pdf)$/i.test(item.path);
 							const isImage = Utils.isImageFile(item.path);
 							return (isTextLike || isImage) && item.size < 5000000;
 						});
@@ -1137,7 +1152,8 @@ async handleFileUpload(event) {
 						let localNote = await DBService.get(filename);
 
 						UI.showStatus(`Pulling ${filename}...`);
-						const isImage = Utils.isImageFile(filename);
+						
+						const isBinary = Utils.isImageFile(filename) || Utils.isPdfFile(filename);
 						
 						// 3. Proceed with the network request
 						const fileResponse = await SyncService.getFile(filename);
@@ -1147,13 +1163,13 @@ async handleFileUpload(event) {
 							localNote = { filename, content: '', last_synced_sha: null, remote_sha: null, is_dirty: false };
 						}
 
-						if (isImage) {
-							// Binary Handling
+						if (isBinary) {
+							// Binary Handling (Blobs)
 							localNote.content = fileResponse; // fileResponse is a raw Blob here
 							localNote.is_dirty = false;
 							localNote.last_synced_sha = localNote.remote_sha; // Use the known SHA from the tree
 						} else {
-							// Text Handling
+							// Text Handling (Base64 Strings)
 							const remoteContent = Utils.atou(fileResponse.content);
 							if (localNote.is_dirty && localNote.content !== remoteContent) {
 								const choice = prompt(`Conflict in ${filename}!\nd: Insert Diff markers\nw: Overwrite local with remote`, "d");
@@ -1274,7 +1290,9 @@ async pushFile() {
 				},
 
 				toggleViewMode() {
-					if (!AppState.currentFilename || Utils.isImageFile(AppState.currentFilename)) return;
+					if (!AppState.currentFilename
+									|| Utils.isImageFile(AppState.currentFilename)
+									|| Utils.isPdfFile(AppState.currentFilename)) return;
 
 					AppState.isViewMode = !AppState.isViewMode;
 
