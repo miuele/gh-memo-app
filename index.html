@@ -131,7 +131,6 @@
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
 				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
     			<button onclick="Actions.addPin()">📌 Pin</button>
-				<button onclick="Actions.clearDB()" style="color: var(--danger);">🗑️ Clear DB</button>
 				<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
 				<input type="search" id="search-bar" placeholder="Filter files... (Enter for deep search)">
@@ -278,7 +277,22 @@
 					});
 					
 					return textarea;
-				}
+				},
+				// PKCE Helper: Generates a cryptographically random string
+				generateCodeVerifier: () => {
+					const array = new Uint32Array(28);
+					window.crypto.getRandomValues(array);
+					return Array.from(array, dec => ('0' + dec.toString(16)).substr(-2)).join('');
+				},
+				
+				// PKCE Helper: Hashes the verifier into a base64-url encoded challenge
+				generateCodeChallenge: async (verifier) => {
+					const encoder = new TextEncoder();
+					const data = encoder.encode(verifier);
+					const digest = await window.crypto.subtle.digest('SHA-256', data);
+					return btoa(String.fromCharCode(...new Uint8Array(digest)))
+						.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+				},
 			};
 
 			/* =====================================================================
@@ -482,18 +496,20 @@
 				},
 
 				async refreshAccessToken() {
-					const { appKey, appSecret, refreshToken } = AppState.config;
+					const { appKey, refreshToken } = AppState.config;
+					
 					const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 						body: new URLSearchParams({
 							refresh_token: refreshToken,
 							grant_type: 'refresh_token',
-							client_id: appKey,
-							client_secret: appSecret
+							client_id: appKey
 						})
 					});
+					
 					if (!res.ok) throw new Error('Refresh failed.');
+					
 					const data = await res.json();
 					AppState.config.token = data.access_token;
 					AppState.profiles[AppState.activeProfileId].config = AppState.config;
@@ -602,62 +618,61 @@
 			===================================================================== */
 			const Plugins = {
 				Image: {
-					name: 'ImagePlugin',
-					supportedModes: ['view'],
-					objectUrl: null, // Local memory state
 					canHandle: (fn) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(fn || ''),
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'ImagePlugin',
+						supportedModes: ['view'],
+						objectUrl: null, // Local memory state
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						if (content instanceof Blob) {
-							this.objectUrl = URL.createObjectURL(content);
-							this.viewLayer.innerHTML = `
-								<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
-									<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-								</div>`;
+							if (content instanceof Blob) {
+								this.objectUrl = URL.createObjectURL(content);
+								this.viewLayer.innerHTML = `
+									<div style="width:100%; display:flex; justify-content:center; padding: 20px 0;">
+										<img src="${this.objectUrl}" style="max-width: 100%; max-height: 80vh; object-fit: contain; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+									</div>`;
+							}
+						},
+						unmount: function() {
+							if (this.objectUrl) {
+								URL.revokeObjectURL(this.objectUrl);
+								this.objectUrl = null;
+							}
+							this.viewLayer.innerHTML = '';
 						}
-					},
-					unmount: function() {
-						if (this.objectUrl) {
-							URL.revokeObjectURL(this.objectUrl);
-							this.objectUrl = null;
-						}
-						this.viewLayer.innerHTML = '';
-					}
+					}),
 				},
 
 				PDF: {
-					name: 'PDFPlugin',
-					supportedModes: ['view'],
-					objectUrl: null,
 					canHandle: (fn) => /\.pdf$/i.test(fn || ''),
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'PDFPlugin',
+						supportedModes: ['view'],
+						objectUrl: null,
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						if (content instanceof Blob) {
-							this.objectUrl = URL.createObjectURL(content);
-							this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+							if (content instanceof Blob) {
+								this.objectUrl = URL.createObjectURL(content);
+								this.viewLayer.innerHTML = `<iframe src="${this.objectUrl}#toolbar=0" style="width: 100%; height: 85vh; border: 1px solid var(--border); border-radius: 4px;"></iframe>`;
+							}
+						},
+						unmount: function() {
+							if (this.objectUrl) {
+								URL.revokeObjectURL(this.objectUrl);
+								this.objectUrl = null;
+							}
+							this.viewLayer.innerHTML = '';
 						}
-					},
-					unmount: function() {
-						if (this.objectUrl) {
-							URL.revokeObjectURL(this.objectUrl);
-							this.objectUrl = null;
-						}
-						this.viewLayer.innerHTML = '';
-					}
+					}),
 				},
 				Markdown: {
-					name: 'MarkdownPlugin',
-					supportedModes: ['edit', 'view'],
-					depsLoaded: false,
-					textarea: null,
-					viewLayer: null,
-					filename: null,
 					canHandle: (fn) => /\.(md|markdown)$/i.test(fn || ''),
-					
+					depsLoaded: false,
+
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						UI.showStatus('Loading Markdown engine...', false);
@@ -674,73 +689,77 @@
 						UI.showStatus('Markdown engine loaded.');
 					},
 
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.filename = filename;
-						this.viewLayer = viewLayer;
-
-						// Ask the factory for a standard editor, but the plugin still OWNS it
-						this.textarea = Utils.createStandardEditor(content, saveCallback);
-						editLayer.appendChild(this.textarea);
-
-						if (AppState.isViewMode) await this.renderMarkdown();
-					},
-
-					onModeSwitch: async function(isViewMode) {
-						if (isViewMode) await this.renderMarkdown();
-						else this.textarea.focus();
-					},
-
-					renderMarkdown: async function() {
-						await this.loadDeps();
-						const template = document.createElement('template');
-						template.innerHTML = marked.parse(this.textarea.value);
-						template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+					create: () => ({
+						name: 'MarkdownPlugin',
+						supportedModes: ['edit', 'view'],
+						textarea: null,
+						viewLayer: null,
+						filename: null,
 						
-						const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
-							const src = img.getAttribute('src');
-							if (src && !src.match(/^(http|https|data:)/i)) {
-								// Erase the broken local path immediately
-								img.removeAttribute('src'); 
-								
-								const file = await DBService.get(Utils.resolvePath(this.filename, src));
-								if (file && file.content instanceof Blob) {
-									const objectUrl = URL.createObjectURL(file.content);
-									img.src = objectUrl;
-									img.onload = () => URL.revokeObjectURL(objectUrl); 
-								} else {
-									img.alt = `[Image missing locally: ${src}]`;
+
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.filename = filename;
+							this.viewLayer = viewLayer;
+
+							// Ask the factory for a standard editor, but the plugin still OWNS it
+							this.textarea = Utils.createStandardEditor(content, saveCallback);
+							editLayer.appendChild(this.textarea);
+
+							if (AppState.isViewMode) await this.renderMarkdown();
+						},
+
+						onModeSwitch: async function(isViewMode) {
+							if (isViewMode) await this.renderMarkdown();
+							else this.textarea.focus();
+						},
+
+						renderMarkdown: async function() {
+							await Plugins.Markdown.loadDeps();
+							const template = document.createElement('template');
+							template.innerHTML = marked.parse(this.textarea.value);
+							template.content.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+							
+							const imgPromises = Array.from(template.content.querySelectorAll('img')).map(async (img) => {
+								const src = img.getAttribute('src');
+								if (src && !src.match(/^(http|https|data:)/i)) {
+									// Erase the broken local path immediately
+									img.removeAttribute('src'); 
+									
+									const file = await DBService.get(Utils.resolvePath(this.filename, src));
+									if (file && file.content instanceof Blob) {
+										const objectUrl = URL.createObjectURL(file.content);
+										img.src = objectUrl;
+										img.onload = () => URL.revokeObjectURL(objectUrl); 
+									} else {
+										img.alt = `[Image missing locally: ${src}]`;
+									}
 								}
+							});
+
+							// Wait for all IndexedDB transactions to finish
+							await Promise.all(imgPromises);
+							
+							this.viewLayer.innerHTML = '';
+							this.viewLayer.appendChild(template.content);
+						},
+
+						freeze: function() {
+							if (this.textarea) {
+								this.textarea.disabled = true;
 							}
-						});
+						},
 
-						// Wait for all IndexedDB transactions to finish
-						await Promise.all(imgPromises);
-						
-						this.viewLayer.innerHTML = '';
-						this.viewLayer.appendChild(template.content);
-					},
-
-					freeze: function() {
-						if (this.textarea) {
-							this.textarea.disabled = true;
-						}
-					},
-
-					unmount: function() {
-						this.textarea = null; 
-						this.viewLayer = null;
-						this.filename = null;
-					} 
+						unmount: function() {
+							this.textarea = null; 
+							this.viewLayer = null;
+							this.filename = null;
+						} 
+					}),
 				},
 				Text: {
-					name: 'TextPlugin',
-					supportedModes: ['edit', 'view'],
-					depsLoaded: false,
-					textarea: null,
-					viewLayer: null,
-					filename: null,
 					canHandle: (fn) => Utils.isTextFile(fn) && !/\.(md|markdown)$/i.test(fn || ''),
-					
+					depsLoaded: false,
+
 					loadDeps: async function() {
 						if (this.depsLoaded) return;
 						await Promise.all([
@@ -750,59 +769,69 @@
 						this.depsLoaded = true;
 					},
 
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.filename = filename;
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'TextPlugin',
+						supportedModes: ['edit', 'view'],
+						textarea: null,
+						viewLayer: null,
+						filename: null,
+						
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.filename = filename;
+							this.viewLayer = viewLayer;
 
-						// Use the exact same factory here
-						this.textarea = Utils.createStandardEditor(content, saveCallback);
-						editLayer.appendChild(this.textarea);
+							// Use the exact same factory here
+							this.textarea = Utils.createStandardEditor(content, saveCallback);
+							editLayer.appendChild(this.textarea);
 
-						if (AppState.isViewMode) await this.renderText(filename);
-					},
+							if (AppState.isViewMode) await this.renderText(filename);
+						},
 
-					onModeSwitch: async function(isViewMode) {
-						// We need filename for extension detection in syntax highlighting
-						if (isViewMode) await this.renderText(this.filename); 
-						else this.textarea.focus();
-					},
+						onModeSwitch: async function(isViewMode) {
+							// We need filename for extension detection in syntax highlighting
+							if (isViewMode) await this.renderText(this.filename); 
+							else this.textarea.focus();
+						},
 
-					renderText: async function(filename) {
-						await this.loadDeps();
-						const ext = filename.split('.').pop().toLowerCase();
-						const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-						this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
-						this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
-					},
-					freeze: function() {
-						if (this.textarea) {
-							this.textarea.disabled = true;
+						renderText: async function(filename) {
+							await Plugins.Text.loadDeps();
+							const ext = filename.split('.').pop().toLowerCase();
+							const escaped = this.textarea.value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+							this.viewLayer.innerHTML = `<pre><code class="language-${ext}">${escaped}</code></pre>`;
+							this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+						},
+						freeze: function() {
+							if (this.textarea) {
+								this.textarea.disabled = true;
+							}
+						},
+						unmount: function() {
+							this.textarea = null;
+							this.viewLayer = null;
 						}
-					},
-					unmount: function() {
-						this.textarea = null;
-						this.viewLayer = null;
-					}
+					}),
 				},
 
 				Unsupported: {
-					name: 'UnsupportedPlugin',
-					supportedModes: ['view'],
 					canHandle: () => true, // Catch-all fallback
-					viewLayer: null,
-					mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
-						this.viewLayer = viewLayer;
+					create: () => ({
+						name: 'UnsupportedPlugin',
+						supportedModes: ['view'],
+						viewLayer: null,
+						mount: async function(filename, content, viewLayer, editLayer, saveCallback) {
+							this.viewLayer = viewLayer;
 
-						this.viewLayer.innerHTML = `
-							<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
-								<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
-								<i>Binary File</i><br><br>
-								<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
-							</div>`;
-					},
-					unmount: function() {
-						this.viewLayer.innerHTML = '';
-					}
+							this.viewLayer.innerHTML = `
+								<div style="text-align: center; color: #888; margin-top: 40px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
+									<div style="font-size: 40px; margin-bottom: 15px;">📦</div>
+									<i>Binary File</i><br><br>
+									<span style="font-size: 13px;">This file cannot be previewed, but it can be synced to your cloud provider.</span>
+								</div>`;
+						},
+						unmount: function() {
+							this.viewLayer.innerHTML = '';
+						}
+					}),
 				}
 			};
 			const PluginRegistry = [
@@ -889,8 +918,9 @@
 						AppState.activePlugin.unmount();
 					}
 
-					// 2. NEGOTIATE
-					const plugin = PluginRegistry.find(p => p.canHandle(filename));
+					// 2. NEGOTIATE & INSTANTIATE
+					const pluginHandler = PluginRegistry.find(p => p.canHandle(filename));
+					const plugin = pluginHandler.create();
 					AppState.activePlugin = plugin;
 
 					if (!plugin.supportedModes.includes('edit') && !AppState.isViewMode) AppState.isViewMode = true;
@@ -996,9 +1026,10 @@
 						<div class="profile-card ${isActive ? 'active' : ''}">
 							<div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
 								<h3 style="margin: 0;">${profile.name} ${isActive ? ' <span style="color:var(--accent); font-size: 14px;">(Active)</span>' : ''}</h3>
-								<div>
-									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch to this Profile</button>` : ''}
-									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">Delete</button>
+								<div style="display: flex; gap: 8px;">
+									${!isActive ? `<button onclick="Actions.switchProfile('${id}'); UI.renderSettings();">Switch</button>` : ''}
+									<button onclick="Actions.clearDB('${id}')" style="color: #c98200;">🧹 Clear Data</button>
+									<button onclick="Actions.deleteProfile('${id}')" style="color: var(--danger);">🗑️ Delete</button>
 								</div>
 							</div>
 							<div class="form-grid">
@@ -1012,17 +1043,15 @@
 								
 								<!-- Dropbox Only Fields -->
 								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
-									<label>App Key</label>
-									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}">
+									<label>App Key (Client ID)</label>
+									<input type="text" id="cfg-dbx-key-${id}" value="${c.appKey || ''}" placeholder="Found in Dropbox App Console">
 								</div>
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'};">
-									<label>App Secret</label>
-									<input type="password" id="cfg-dbx-secret-${id}" value="${c.appSecret || ''}">
-								</div>
-								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 10px;">
-									<button onclick="Actions.linkDropbox('${id}')">🔗 1. Get Auth Code</button>
-									<button onclick="Actions.exchangeDropboxCode('${id}')" style="background: var(--accent); color: white; border: none;">🔑 2. Link Account</button>
-									<span style="font-size: 12px; color: #666; margin-left: 10px; align-self: center;">
+								
+								<div class="form-group dbx-only-${id}" style="display: ${c.provider === 'dropbox' ? 'flex' : 'none'}; grid-column: 1 / -1; flex-direction: row; gap: 15px; align-items: center;">
+									<button onclick="Actions.linkDropboxPKCE('${id}')" style="background: var(--accent); color: white; border: none; padding: 8px 16px;">
+										⚡ Link Dropbox Account
+									</button>
+									<span style="font-size: 13px; color: #666;">
 										Status: ${c.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked'}
 									</span>
 								</div>
@@ -1263,54 +1292,6 @@
 					AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
 					this.openFile(filename);
 				},
-				linkDropbox(id) {
-					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
-					if (!key) return alert("Please enter your App Key first.");
-					
-					// Opens the Dropbox approval page asking for offline access
-					const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&token_access_type=offline`;
-					window.open(authUrl, '_blank');
-				},
-
-				async exchangeDropboxCode(id) {
-					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
-					const secret = document.getElementById(`cfg-dbx-secret-${id}`).value.trim();
-					const code = prompt("Paste the Authorization Code from Dropbox:");
-					
-					if (!code || !key || !secret) return alert("Missing Code, Key, or Secret.");
-
-					UI.showStatus("Linking Dropbox...");
-					try {
-						const credentials = btoa(`${key}:${secret}`);
-						const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
-							method: 'POST',
-							headers: {
-								'Content-Type': 'application/x-www-form-urlencoded',
-								'Authorization': `Basic ${credentials}`
-							},
-							body: new URLSearchParams({ code: code, grant_type: 'authorization_code' })
-						});
-
-						const data = await res.json();
-						if (!res.ok) throw new Error(data.error_description || "Auth failed");
-
-						// Save everything to the profile
-						const profile = AppState.profiles[id];
-						profile.config.provider = 'dropbox';
-						profile.config.appKey = key;
-						profile.config.appSecret = secret;
-						profile.config.token = data.access_token;
-						profile.config.refreshToken = data.refresh_token; // The holy grail
-						
-						localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
-						if (id === AppState.activeProfileId) AppState.config = profile.config;
-						
-						UI.showStatus("Dropbox linked successfully! You never have to do this again.");
-						UI.renderSettings(); // Refresh UI
-					} catch (err) {
-						UI.showStatus(`Linking failed: ${err.message}`, true);
-					}
-				},
 				handleTyping(newContent) {
 					if (!AppState.currentFilename) return;
 					clearTimeout(AppState.typingTimer);
@@ -1328,17 +1309,28 @@
 					}, 500); 
 				},
 
-				async clearDB() {
-					if (!confirm('WARNING: Permanently delete ALL local notes?')) return;
+				async clearDB(id) {
+					const profile = AppState.profiles[id];
+					if (!profile) return;
+
+					if (!confirm(`WARNING: Permanently wipe all local notes for profile "${profile.name}"?\n\n(This does not delete the profile itself, just its offline cache.)`)) return;
+
 					try {
-						await DBService.clear();
-						UI.resetEditor();
-						history.replaceState(null, null, window.location.pathname);
-						UI.renderFileList();
-						AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
-						UI.showStatus('Local database completely cleared.');
+						if (id === AppState.activeProfileId) {
+							// Active Profile: Clear via DBService and reset the live UI
+							await DBService.clear();
+							UI.resetEditor();
+							history.replaceState(null, null, window.location.pathname);
+							UI.renderFileList();
+							AppState.syncChannel.postMessage({ type: 'SIDEBAR_REFRESH' });
+							UI.showStatus(`Local cache cleared for ${profile.name}.`);
+						} else {
+							// Background Profile: Just drop the IndexedDB from the browser silently
+							indexedDB.deleteDatabase(profile.dbName);
+							UI.showStatus(`Local cache cleared for ${profile.name}.`);
+						}
 					} catch(err) {
-						UI.showStatus('Failed to clear local database.', true);
+						UI.showStatus(`Failed to clear local cache.`, true);
 					}
 				},
 
@@ -1547,6 +1539,76 @@
 						await plugin.onModeSwitch(AppState.isViewMode);
 					}
 				},
+				async linkDropboxPKCE(id) {
+					const key = document.getElementById(`cfg-dbx-key-${id}`).value.trim();
+					if (!key) return alert("Please enter your App Key first.");
+
+					const verifier = Utils.generateCodeVerifier();
+					const challenge = await Utils.generateCodeChallenge(verifier);
+					
+					sessionStorage.setItem('dbx_pkce_verifier', verifier);
+					sessionStorage.setItem('dbx_pkce_profile_id', id);
+					sessionStorage.setItem('dbx_pkce_client_id', key); // <--- ADD THIS LINE
+
+					const redirectUri = window.location.origin + window.location.pathname;
+					const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${key}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&token_access_type=offline&redirect_uri=${encodeURIComponent(redirectUri)}`;
+					window.location.href = authUrl; 
+				},
+
+				async handlePKCERedirect() {
+					const params = new URLSearchParams(window.location.search);
+					const code = params.get('code');
+					const verifier = sessionStorage.getItem('dbx_pkce_verifier');
+					const profileId = sessionStorage.getItem('dbx_pkce_profile_id');
+					const clientId = sessionStorage.getItem('dbx_pkce_client_id'); // <--- PULL IT HERE
+
+					if (!code || !verifier || !profileId || !clientId) return false;
+
+					window.history.replaceState({}, document.title, window.location.pathname);
+					sessionStorage.removeItem('dbx_pkce_verifier');
+					sessionStorage.removeItem('dbx_pkce_profile_id');
+					sessionStorage.removeItem('dbx_pkce_client_id'); // Clean up
+
+					const profile = AppState.profiles[profileId];
+					if (!profile) return false;
+
+					try {
+						const redirectUri = window.location.origin + window.location.pathname;
+						const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+							body: new URLSearchParams({
+								client_id: clientId, // <--- USE IT HERE
+								grant_type: 'authorization_code',
+								code: code,
+								code_verifier: verifier,
+								redirect_uri: redirectUri
+							})
+						});
+
+						const data = await res.json();
+						
+						if (!res.ok) {
+							console.error("DROPBOX API ERROR:", data);
+							throw new Error(data.error_description || data.error || "Unknown Auth Failure");
+						}
+
+						// 4. Save to the profile permanently!
+						profile.config.provider = 'dropbox';
+						profile.config.appKey = clientId; // <--- SAVE IT HERE
+						profile.config.appSecret = ''; 
+						profile.config.token = data.access_token;
+						profile.config.refreshToken = data.refresh_token; 
+						
+						localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
+						if (profileId === AppState.activeProfileId) AppState.config = profile.config;
+
+						return true;
+					} catch (err) {
+						alert(`PKCE Linking failed: ${err.message}`);
+						return false;
+					}
+				},
 			};
 
 			/* =====================================================================
@@ -1581,6 +1643,27 @@
 
 				initDOM();
 
+				// --- CATCH DROPBOX PKCE REDIRECT ---
+				Actions.handlePKCERedirect().then((wasRedirect) => {
+					// Hydrate the active context
+					Actions.switchProfile(AppState.activeProfileId);
+
+					if (wasRedirect) {
+						// If we just finished PKCE, open the settings panel to show success
+						Actions.configureGitHub();
+						UI.showStatus("Dropbox linked successfully via PKCE!");
+					} else {
+						// Normal Deep Link Boot Sequence
+						const hash = window.location.hash.substring(1);
+						if (hash) {
+							Actions.openFile(decodeURIComponent(hash), true);
+						} else {
+							UI.resetEditor();
+							UI.renderFileList();
+						}
+					}
+				});
+                
 				// Hydrate the active context BEFORE attempting to load any files
 				Actions.switchProfile(AppState.activeProfileId);
 
@@ -1697,15 +1780,17 @@ if (e.key === 'Enter') {
 			});
 
 			document.addEventListener('paste', async (e) => {
-				// Only allow pasting when focusing outside the editor (e.g., the sidebar).
-				if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+				if (e.target.tagName === 'INPUT' || !e.target.closest('#sidebar')) {
+					return; 
+				}
 
 				const clipboardData = e.clipboardData || window.clipboardData;
 				const items = clipboardData.items;
 				
 				for (let i = 0; i < items.length; i++) {
 					const item = items[i];
-					
+
+					console.log(item);
 					if (item.type.indexOf('image') !== -1) {
 						e.preventDefault(); 
 						
