@@ -32,8 +32,6 @@
 
 		<title>Local-First Notes</title>
 
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js"></script>
-
 		<style>
 			:root {
 	--bg: #f9f9f9; --sidebar-bg: #ececec; --text: #333; 
@@ -138,7 +136,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 				<button onclick="Actions.createFile()">+ New</button>
 				<button onclick="DOM.fileInput.click()">📤 Upload</button>
 				<button onclick="Actions.refreshTree()">🔄 Refresh List</button>
-				<button onclick="Actions.configureGitHub()">⚙️ Setup</button>
+				<button onclick="Actions.openSettings()">⚙️ Setup</button>
     			<button onclick="Actions.addPin()">📌 Pin</button>
 				<input type="file" id="file-upload" style="display:none;" onchange="Actions.handleFileUpload(event)">
     			<div id="pin-container" style="display: flex; flex-wrap: wrap; gap: 5px; width: 100%; margin-top: 5px;"></div>
@@ -554,6 +552,7 @@ const DropboxService = {
 		if (url.includes('/download')) delete headers['Content-Type'];
 
 		initOptions.headers = headers;
+		initOptions.cache = 'no-store';
 		let res = await fetch(url, initOptions);
 
 		if (res.status === 401 && AppState.config.refreshToken) {
@@ -573,6 +572,7 @@ const DropboxService = {
 		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			cache: 'no-store',
 			body: new URLSearchParams({
 				refresh_token: refreshToken,
 				grant_type: 'refresh_token',
@@ -886,7 +886,7 @@ Text: {
 			renderText: async function(filename) {
 				await Plugins.Text.loadDeps();
 				const ext = filename.split('.').pop().toLowerCase();
-				this.viewLayer.appendChild(h('pre', {}, h('code', { class: "language-" + ext }, this.textarea.value)));
+				this.viewLayer.replaceChildren(h('pre', {}, h('code', { class: "language-" + ext }, this.textarea.value)));
 				this.viewLayer.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 			},
 			freeze: function() {
@@ -932,12 +932,8 @@ Unsupported: {
 	toggleSidebar() {
 		DOM.sidebar.classList.toggle('collapsed');
 	},
-	showStatus(html, isError = false) {
-		if (html instanceof Node) {
-			DOM.statusBar.appendChild(html);
-		} else {
-			DOM.statusBar.textContent = String(html);
-		}
+	showStatus(text, isError = false) {
+		DOM.statusBar.textContent = text;
 		DOM.statusBar.style.display = 'flex';
 		DOM.statusBar.className = isError ? 'error' : '';
 		if (!isError) setTimeout(() => DOM.statusBar.style.display = 'none', 4000);
@@ -948,7 +944,7 @@ Unsupported: {
 			DOM.pinContainer.appendChild(
 				h('span', { class: 'pin-tag', onclick: () => Actions.handlePinClick(pin) },
 					h('span', {}, pin),
-					h('span', { class: 'pin-rm', onclick: e => Actions.removePin(pin, e) }, '&times;'),
+					h('span', { class: 'pin-rm', onclick: e => Actions.removePin(pin, e) }, '\u00D7'),
 				)
 			);
 		});
@@ -1085,7 +1081,7 @@ Unsupported: {
 			}, h('span', {}, icon + ' ' + note.filename));
 
 			if (deepSearch && note.matchCount) {
-				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + note.matchCount > 1 ? 'es' : ''));
+				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + (note.matchCount > 1 ? 'es' : '')));
 			}
 
 			DOM.fileList.appendChild(li);
@@ -1157,18 +1153,6 @@ Unsupported: {
 			DOM.settingsPanel.appendChild(card);
 		}
 	},
-	toggleProviderFields(id) {
-		const provider = document.getElementById(`cfg-provider-${id}`).value;
-		const dbxFields = document.querySelectorAll(`.dbx-only-${id}`);
-		const ghFields = document.querySelectorAll(`.gh-only-${id}`);
-		if (provider === 'dropbox') {
-			dbxFields.forEach(el => el.style.display = 'flex');
-			ghFields.forEach(el => el.style.display = 'none');
-		} else {
-			dbxFields.forEach(el => el.style.display = 'none');
-			ghFields.forEach(el => el.style.display = 'flex');
-		}
-	},
 };
 
 			const Actions = {
@@ -1193,7 +1177,7 @@ Unsupported: {
 
 		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
 		this.switchProfile(id);
-		this.configureGitHub(); // Prompt for settings immediately
+		this.openSettings(); // Prompt for settings immediately
 	},
 
 	switchProfile(profileId) {
@@ -1226,7 +1210,7 @@ Unsupported: {
 		localStorage.setItem('notes_profiles', JSON.stringify(AppState.profiles));
 	},
 
-	configureGitHub() {
+	openSettings() {
 		UI.resetEditor();
 		AppState.currentFilename = null;
 		history.replaceState(null, null, window.location.pathname);
@@ -1286,7 +1270,7 @@ Unsupported: {
 			// Fallback to the first available profile if we deleted the active one
 			const fallbackId = Object.keys(AppState.profiles)[0];
 			this.switchProfile(fallbackId);
-			this.configureGitHub(); // Re-open settings to show the updated list
+			this.openSettings(); // Re-open settings to show the updated list
 		} else {
 			// We deleted a background profile, just re-render the list
 			UI.renderSettings();
@@ -1490,7 +1474,12 @@ Unsupported: {
 						localNote.content = remoteContent;
 						localNote.is_dirty = false;
 					} else {
-						UI.showStatus(`Injecting merge markers...`, true);
+						try {
+							await Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js");
+						} catch (err) {
+							UI.showStatus(`Failed to load jsdiff.`, true);
+						}
+
 						if (typeof Diff !== 'undefined') {
 							let merged = "";
 							Diff.diffLines(remoteContent, localNote.content).forEach(p => {
@@ -1685,7 +1674,32 @@ Unsupported: {
 };
 
 
-			window.onload = () => {
+			AppState.syncChannel.onmessage = (event) => {
+	if (event.data.type === 'SIDEBAR_REFRESH') UI.renderFileList();
+
+	if (event.data.type === 'LOCAL_EDIT' && AppState.currentFilename === event.data.filename) {
+		if (!AppState.isFrozen) {
+			AppState.isFrozen = true;
+
+			// 1. Core locks global Chrome
+			DOM.pullBtn.disabled = true;
+			DOM.pushBtn.disabled = true;
+			DOM.editLayer.style.opacity = '0.6';
+
+			// 2. Plugin locks its specific inputs
+			if (AppState.activePlugin && AppState.activePlugin.freeze) {
+				AppState.activePlugin.freeze();
+			} else {
+				// Brutal fallback if a plugin forgets to implement freeze()
+				DOM.editLayer.style.pointerEvents = 'none';
+			}
+
+			UI.showStatus(`⚠️ Edited in another tab.`, true);
+		}
+	}
+};
+
+window.onload = () => {
 
 	initDOM();
 
@@ -1696,7 +1710,7 @@ Unsupported: {
 
 		if (wasRedirect) {
 			// If we just finished PKCE, open the settings panel to show success
-			Actions.configureGitHub();
+			Actions.openSettings();
 			UI.showStatus("Dropbox linked successfully via PKCE!");
 		} else {
 			// Normal Deep Link Boot Sequence
@@ -1709,20 +1723,6 @@ Unsupported: {
 			}
 		}
 	});
-
-	// Hydrate the active context BEFORE attempting to load any files
-	Actions.switchProfile(AppState.activeProfileId);
-
-	// 1. Deep Link Boot Sequence
-	const hash = window.location.hash.substring(1);
-	if (hash) {
-		// Boot directly into the requested file
-		Actions.openFile(decodeURIComponent(hash), true);
-	} else {
-		// Boot into the empty state
-		UI.resetEditor();
-		UI.renderFileList();
-	}
 
 	// 2. Wire up search bar events locally
 	DOM.searchBar.addEventListener('input', () => UI.renderFileList(DOM.searchBar.value, false));
@@ -1773,7 +1773,7 @@ Unsupported: {
 						if (candidates.length === 1) {
 							finalPath = candidates[0];
 							note = await DBService.get(finalPath);
-							UI.showStatus(`Rerouted: ${target.filename} &rarr; ${Utils.parsePath(finalPath).filename}`);
+							UI.showStatus(`Rerouted: ${target.filename} \u2192 ${Utils.parsePath(finalPath).filename}`);
 						}
 					}
 
@@ -1826,6 +1826,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('paste', async (e) => {
+	// Allow paste when focus is on the sidebar
 	if (e.target.tagName === 'INPUT' || !e.target.closest('#sidebar')) {
 		return; 
 	}
