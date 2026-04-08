@@ -205,35 +205,47 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     </div>
 </template>
 
-<!-- Template 2: Workspace (Mount Point only) -->
-<template id="workspace-card-template">
-    <div class="profile-card">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
-            <h3 class="ws-title" style="margin: 0;"></h3>
-            <div style="display: flex; gap: 8px;">
-                <button class="btn-switch">Switch</button>
-                <button class="btn-clear" style="color: #c98200;">🧹 Clear DB</button>
-                <button class="btn-delete" style="color: var(--danger);">🗑️ Delete</button>
+<!-- Template 2: Tree Group Header -->
+<template id="tree-group-template">
+    <div class="tree-group" style="border: 1px solid var(--border); border-radius: 6px; margin-bottom: 25px; overflow: hidden; background: #fafafa;">
+        <div class="tree-header" style="background: #eef4f9; padding: 15px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 class="tree-title" style="margin: 0; font-size: 16px; color: var(--accent);"></h3>
+                <button class="btn-add-mount" style="background: var(--accent); color: white; border: none; font-size: 12px;">+ Add Mount Point</button>
+            </div>
+            
+            <!-- Shared Origin Configuration -->
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12px;">
+                <select class="tree-keychain" style="padding: 4px;"></select>
+                <div class="tree-gh-only" style="display: flex; gap: 6px; align-items: center;">
+                    <input type="text" class="tree-owner" placeholder="Owner" style="width: 100px; padding: 4px;"> /
+                    <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
+                    <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
+                    <input type="text" class="tree-host" placeholder="Host" style="width: 150px; padding: 4px;">
+                </div>
             </div>
         </div>
-        <div class="form-grid">
-            <div class="form-group" style="grid-column: 1 / -1;">
-                <label>Linked Keychain</label>
-                <select class="ws-keychain"></select> 
-            </div>
+        <div class="mount-list" style="padding: 15px; display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+</template>
+
+<!-- Template 3: Mount Point Row (Simplified Workspace) -->
+<template id="mount-row-template">
+    <div class="mount-row" style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: white; border: 1px solid var(--border); border-radius: 4px;">
+        <div style="display: flex; align-items: center; gap: 15px; flex-grow: 1;">
+            <input type="text" class="ws-name" placeholder="Name" style="width: 150px; padding: 6px; font-size: 13px;">
+            <input type="text" class="ws-rootDir" placeholder="/" style="flex-grow: 1; padding: 6px; font-size: 13px; font-family: monospace;">
             
-            <!-- Git Specific Fields -->
-            <div class="form-group ws-gh-only"><label>Host</label><input type="text" class="ws-host"></div>
-            <div class="form-group ws-gh-only"><label>Owner</label><input type="text" class="ws-owner"></div>
-            <div class="form-group ws-gh-only"><label>Repository</label><input type="text" class="ws-repo"></div>
-            <div class="form-group ws-gh-only"><label>Branch</label><input type="text" class="ws-branch"></div>
-            
-            <!-- Universal VFS Fields -->
-            <div class="form-group"><label>Root Directory (Optional)</label><input type="text" class="ws-rootDir" placeholder="e.g. docs/src"></div>
-            <div class="form-group" style="flex-direction: row; align-items: center; gap: 10px;">
-                <input type="checkbox" class="ws-shallow" style="width: auto;">
-                <label style="margin: 0;">Shallow Fetch (Show Folders)</label>
-            </div>
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer;">
+                <input type="checkbox" class="ws-shallow"> Shallow
+            </label>
+        </div>
+        
+        <div style="display: flex; gap: 8px; margin-left: 20px;">
+            <span class="leaf-warning" style="display: none; color: #c98200; font-size: 16px; cursor: help;" title="Cannot be deep (shallow: false) because child sub-directories are mounted below this path.">⚠️</span>
+            <button class="btn-switch" style="font-size: 12px;">Switch</button>
+            <button class="btn-clear" style="font-size: 12px; color: #c98200;" title="Clear DB">🧹</button>
+            <button class="btn-delete" style="font-size: 12px; color: var(--danger);" title="Delete">🗑️</button>
         </div>
     </div>
 </template>
@@ -256,15 +268,64 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     get activeKeychain() { 
         return this.activeWorkspace ? this.keychains[this.activeWorkspace.keychainId] : null; 
     },
+
+    // --- WORKSPACE FOREST LOGIC ---
+    get activeTreeSignature() {
+        const ws = this.activeWorkspace;
+        if (!ws) return null;
+        const kc = this.activeKeychain;
+        const provider = kc ? kc.provider : 'github';
+        
+        // Dropbox instances are isolated strictly by the account token they use
+        if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
+        
+        // Git instances are isolated by their absolute remote origin
+        return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+    },
+
+    get workspaceTrees() {
+        const trees = {};
+        
+        for (const [id, ws] of Object.entries(this.workspaces)) {
+            const kc = this.keychains[ws.keychainId];
+            const provider = kc ? kc.provider : 'github';
+            
+            let sig;
+            if (provider === 'dropbox') sig = `dropbox|${ws.keychainId}`;
+            else sig = `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+            
+            if (!trees[sig]) trees[sig] = [];
+            trees[sig].push(id);
+        }
+
+        // Sort each tree's workspace IDs by rootDir length (Deepest paths first)
+        // This guarantees the Router will evaluate the most specific "Best Fit" workspace first
+        for (const sig in trees) {
+            trees[sig].sort((a, b) => {
+                const rootA = (this.workspaces[a].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+                const rootB = (this.workspaces[b].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+                return rootB.length - rootA.length; 
+            });
+        }
+
+        return trees;
+    },
+    // ------------------------------
     
-    pins: [],
+	// --- PINS (FOREST LEVEL) ---
+    treePins: JSON.parse(localStorage.getItem('notes_tree_pins') || '{}'),
+    get activePins() {
+        const sig = this.activeTreeSignature;
+        return sig && this.treePins[sig] ? this.treePins[sig] : [];
+    },
+    // ---------------------------
     isViewMode: false,
     currentFilename: null,
     typingTimer: null,
     activePlugin: null,
     isFrozen: false,
     syncChannel: new BroadcastChannel('github_notes_sync'),
-	isSymlinkEditMode: false,
+    isSymlinkEditMode: false,
 };
 
 const DOM = {};
@@ -300,7 +361,7 @@ function initDOM() {
 		// Files with no extension are usually text (e.g., Makefile, .env)
 		if (!filename.includes('.')) return true; 
 		// Add or remove extensions to this regex as needed
-		return /\.(txt|md|markdown|rst|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|ps1|c|cpp|h|rs|go|java|toml|sml)$/i.test(filename);
+		return /\.(txt|md|markdown|rst|csv|json|xml|html|css|js|ts|jsx|tsx|py|yml|yaml|ini|env|sh|bat|ps1|c|cpp|h|rs|go|java|toml|sml|gitignore|symlink)$/i.test(filename);
 	},
 	resolvePath: (basePath, relativePath) => {
 		// Ignore external web links and base64 data URIs
@@ -324,22 +385,29 @@ function initDOM() {
 		const basename = lastDot === -1 ? filename : filename.substring(0, lastDot);
 		return { dir, filename, basename };
 	},
-	loadResource: (url, type = 'script') => {
+	loadResource: async (url, integrity = null) => {
 		return new Promise((resolve, reject) => {
-			// Don't load the same file twice
-			if (document.querySelector(`[src="${url}"]`) || document.querySelector(`[href="${url}"]`)) return resolve();
+			// Prevent duplicate loading
+			if (document.querySelector(`[src="${url}"], [href="${url}"]`)) return resolve();
 
-			let el;
-			if (type === 'script') {
-				el = document.createElement('script');
-				el.src = url;
-			} else if (type === 'style') {
-				el = document.createElement('link');
+			const isCss = url.split('?')[0].endsWith('.css');
+			const el = document.createElement(isCss ? 'link' : 'script');
+
+			if (isCss) {
 				el.rel = 'stylesheet';
 				el.href = url;
+			} else {
+				el.src = url;
 			}
+
+			// Apply SRI strict enforcement
+			if (integrity) {
+				el.integrity = integrity;
+				el.crossOrigin = 'anonymous'; // Required for SRI validation
+			}
+
 			el.onload = resolve;
-			el.onerror = reject;
+			el.onerror = () => reject(new Error(`Failed to load resource: ${url}`));
 			document.head.appendChild(el);
 		});
 	},
@@ -931,14 +999,28 @@ Markdown: {
 			if (this.depsLoaded) return;
 			UI.showStatus('Loading Markdown engine...', false);
 			await Promise.all([
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/marked/marked.min.js'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css', 'style'),
-				Utils.loadResource('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js'),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js',
+					'sha512-V6rGY7jjOEUc7q5Ews8mMlretz1Vn2wLdMW/qgABLWunzsLfluM0FwHuGjGQ1lc8jO5vGpGIGFE+rTzB+63HdA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js',
+					'sha512-78KH17QLT5e55GJqP76vutp1D2iAoy06WcYBXB6iBCsmO6wWzx0Qdg8EDpm8mKXv68BcvHOyeeP4wxAL0twJGQ=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css',
+					'sha512-fHwaWebuwA7NSF5Qg/af4UeDx9XqUpYpOGgubo3yWu+b2IQR4UeQwbb42Ti7gVAjNtVoI/I9TEoYeu9omwcC6g=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js',
+					'sha512-LQNxIMR5rXv7o+b1l8+N1EZMfhG7iFZ9HhnbJkTp4zjNr5Wvst75AqUeFDxeRUa7l5vEDyUiAip//r+EFLLCyA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css',
+					'sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA=='
+				),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js',
+					'sha512-EBLzUL8XLl+va/zAsmXwS7Z2B1F9HUHkZwyS/VKwh3S7T/U0nF4BaU29EP/ZSf6zgiIxYAnKLu6bJ8dqpmX5uw=='
+				)
 			]);
-			await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.0.0/lib/index.umd.js');
+			await Utils.loadResource('https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.8/lib/index.umd.min.js',
+				'sha384-kZc6RA5jLUXlZ3Qx2c6lIk/01XDpL5lC9GwHtLLboKsl0mBL4wQtflWwqQIGEMgq'
+			);
 			marked.use(
 				window.markedKatex({ throwOnError: false, output: 'html' }),
 				{
@@ -980,14 +1062,34 @@ Markdown: {
 			renderMarkdown: async function() {
 				await Plugins.Markdown.loadDeps();
 
-				const rawHtml = marked.parse(this.textarea.value);
-
-				// Must explicitly tell DOMPurify that data-src is a safe attribute
-				const safeFragment = DOMPurify.sanitize(rawHtml, { 
-					RETURN_DOM_FRAGMENT: true,
-					ADD_ATTR: ['data-src'] 
+				// 1. Register a secure hook BEFORE sanitization
+				// This safely enforces new tabs for all links during the sanitization pass
+				DOMPurify.addHook('afterSanitizeAttributes', function(node) {
+				    if (node.tagName === 'A') {
+				        node.setAttribute('target', '_blank');
+				        node.setAttribute('rel', 'noopener noreferrer');
+				    }
 				});
-
+				
+				const rawHtml = marked.parse(this.textarea.value);
+				
+				// 2. Execute sanitization using explicit Allowlist Profiles
+				const safeFragment = DOMPurify.sanitize(rawHtml, {
+				    // Explicitly enable only the specific safe-lists we need.
+				    // By default, this obliterates all scripts, iframes, objects, and dangerous event handlers.
+				    USE_PROFILES: { 
+				        html: true,   // Standard safe HTML (p, h1, a, strong, img, etc.)
+				        mathMl: true, // Required for KaTeX equations
+				        svg: true     // Required for KaTeX root/fraction symbols
+				    },
+				    
+				    // Explicitly enforce allowed URI schemes. 
+				    // This strictly blocks `<a href="javascript:alert(1)">` vectors.
+				    ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+					RETURN_DOM_FRAGMENT: true,
+					ADD_ATTR: ['data-src'],
+				});
+				
 				safeFragment.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 
 				const imgPromises = Array.from(safeFragment.querySelectorAll('img')).map(async (img) => {
@@ -1014,6 +1116,9 @@ Markdown: {
 				await Promise.all(imgPromises);
 
 				this.viewLayer.replaceChildren(safeFragment);
+				
+				// Remove the hook after use so it doesn't bleed into other plugins
+				DOMPurify.removeHook('afterSanitizeAttributes');
 			},
 
 			freeze: function() {
@@ -1037,7 +1142,7 @@ Text: {
 		loadDeps: async function() {
 			if (this.depsLoaded) return;
 			await Promise.all([
-				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css', 'style'),
+				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css'),
 				Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js')
 			]);
 			this.depsLoaded = true;
@@ -1127,7 +1232,9 @@ Unsupported: {
 	},
 	renderPins() {
 		DOM.pinContainer.replaceChildren();
-		AppState.pins.forEach(pin => {
+		const pins = AppState.activePins; // Read from the Forest level
+		
+		pins.forEach(pin => {
 			DOM.pinContainer.appendChild(
 				h('span', { class: 'pin-tag', onclick: () => Actions.handlePinClick(pin) },
 					h('span', {}, pin),
@@ -1227,6 +1334,37 @@ Unsupported: {
 
 		let notes = await DBService.getAll();
 
+		// --- VIRTUAL MOUNT POINT INJECTION ---
+		const sig = AppState.activeTreeSignature;
+		const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
+		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+
+		treeWsIds.forEach(id => {
+			if (id === AppState.activeWorkspaceId) return;
+			
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			
+			// If the target workspace is a descendant of our current directory
+			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
+				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
+				
+				// Inject if it doesn't already exist in the local cache
+				if (!notes.find(n => n.filename === relativePath)) {
+					notes.push({
+						filename: relativePath,
+						is_folder: true,
+						is_mount_point: true,
+						is_dirty: false,
+						matchCount: 0
+					});
+				} else {
+					// Tag existing local folder as a mount point for styling
+					notes.find(n => n.filename === relativePath).is_mount_point = true;
+				}
+			}
+		});
+		// -------------------------------------
+
 		// 2. If another search started while we were waiting for the DB, abort this one!
 		if (currentRenderId !== AppState.renderId) return;
 
@@ -1253,17 +1391,56 @@ Unsupported: {
 			notes.sort((a, b) => a.filename.localeCompare(b.filename));
 		}
 
+		// --- PARENT WORKSPACE NAVIGATION BUTTON ---
+		// Only show the "Go Up" button if we are not currently searching
+		if (!term) {
+			const sig = AppState.activeTreeSignature;
+			const treeWsIds = sig ? (AppState.workspaceTrees[sig] || []) : [];
+			const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			
+			// If we are not at the absolute root, look for an ancestor workspace
+			if (currentRoot) {
+				const parentId = treeWsIds.find(id => {
+					if (id === AppState.activeWorkspaceId) return false;
+					
+					const candidateRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+					
+					// It is a valid parent if it's the absolute root, or if the current path
+					// strictly sits inside the candidate's directory structure.
+					return candidateRoot === '' || currentRoot.startsWith(candidateRoot + '/');
+				});
+
+				if (parentId) {
+					const li = h('li', {
+						class: 'file-item',
+						style: 'color: var(--accent); font-weight: bold; background: rgba(0, 102, 204, 0.05);',
+						onclick: () => Actions.switchWorkspace(parentId)
+					}, h('span', {}, '🔙 ../'));
+					
+					DOM.fileList.appendChild(li);
+				}
+			}
+		}
+		// ------------------------------------------
+
 		notes.forEach(note => {
 			let icon = '🟢'; 
 			const isDirty = note.is_dirty;
 			const hasRemoteUpdate = note.remote_sha && note.remote_sha !== note.last_synced_sha;
 			const isSymlink = note.filename.endsWith('.symlink');
+			const isFolder = note.is_folder;
 
-			// Apply Symlink styling
-			if (isSymlink) {
+			let displayName = note.filename;
+
+			// Apply Folder & Symlink styling
+			if (isFolder) {
+				icon = note.is_mount_point ? '🗂️' : '📁';
+				displayName += '/';
+			} else if (isSymlink) {
 				icon = '🔗';
 				if (isDirty) icon = '🔗🟡';
 			} else {
+				// Standard text/binary styling
 				if (isDirty && hasRemoteUpdate) icon = '🟡⬇️'; 
 				else if (isDirty) icon = '🟡';   
 				else if (hasRemoteUpdate) icon = '⬇️';   
@@ -1272,7 +1449,7 @@ Unsupported: {
 			const li = h('li', {
 				class: 'file-item' + (note.filename === AppState.currentFilename ? ' active' : ''),
 				onclick: () => Actions.openFile(note.filename)
-			}, h('span', {}, icon + ' ' + note.filename));
+			}, h('span', {}, icon + ' ' + displayName));
 
 			if (deepSearch && note.matchCount) {
 				li.appendChild(h('span', { class: 'match-count' }, note.matchCount + ' match' + (note.matchCount > 1 ? 'es' : '')));
@@ -1281,192 +1458,60 @@ Unsupported: {
 			DOM.fileList.appendChild(li);
 		});
 	},
+
 	renderSettings() {
-		// 1. Clear the panel
 		DOM.settingsPanel.replaceChildren();
 
 		// ==========================================
-		// SECTION 0: GLOBAL OVERRIDES
+		// 0: GLOBAL OVERRIDES
 		// ==========================================
 		DOM.settingsPanel.appendChild(
-		    h('div', { class: 'settings-header', style: 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);' },
-		        h('label', { style: 'display: flex; align-items: center; gap: 10px; cursor: pointer; color: #c98200; font-weight: bold;' },
-		            h('input', { 
-		                type: 'checkbox', 
-		                checked: AppState.isSymlinkEditMode,
-		                onchange: e => AppState.isSymlinkEditMode = e.target.checked
-		            }),
-		            '🔧 Enable Symlink Edit Mode (Resets on reload)'
-		        )
-		    )
+			h('div', { class: 'settings-header', style: 'margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--border);' },
+				h('label', { style: 'display: flex; align-items: center; gap: 10px; cursor: pointer; color: #c98200; font-weight: bold;' },
+					h('input', { 
+					    type: 'checkbox', 
+					    ...(AppState.isSymlinkEditMode ? { checked: true } : {}), // Omit entirely if false
+					    onchange: e => AppState.isSymlinkEditMode = e.target.checked
+					}),
+					'🔧 Enable Symlink Edit Mode (Resets on reload)'
+				)
+			)
 		);
 
 		// ==========================================
-		// SECTION 1: KEYCHAINS (CREDENTIALS)
+		// 1: KEYCHAINS (CREDENTIALS)
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header' },
 				h('h2', { style: 'margin: 0;' }, '🔑 Keychains (Credentials)'),
-				h('button', { 
-					onclick: () => Actions.createKeychain(), 
-					style: 'background: var(--accent); color: white; border: none;' 
-				}, '+ New Keychain')
+				h('button', { onclick: () => Actions.createKeychain(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Keychain')
 			)
 		);
 
 		const kcTemplate = document.getElementById('keychain-card-template');
-
 		for (const [id, kc] of Object.entries(AppState.keychains)) {
-			const clone = kcTemplate.content.cloneNode(true);
-			const card = clone.querySelector('.profile-card');
-
-			card.querySelector('.kc-title').textContent = kc.name;
-
-			// Map inputs and bind live updates to AppState
-			const providerEl = card.querySelector('.kc-provider');
-			providerEl.value = kc.provider || 'github';
-			providerEl.addEventListener('change', e => kc.provider = e.target.value);
-
-			const tokenEl = card.querySelector('.kc-token');
-			tokenEl.value = kc.token || '';
-			tokenEl.addEventListener('input', e => kc.token = e.target.value);
-
-			const appKeyEl = card.querySelector('.kc-appkey');
-			appKeyEl.value = kc.appKey || '';
-			appKeyEl.addEventListener('input', e => kc.appKey = e.target.value);
-
-			// Visibility toggle logic
-			const toggleVisibility = () => {
-				const isDbx = providerEl.value === 'dropbox';
-				card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
-				card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
-			};
-			providerEl.addEventListener('change', toggleVisibility);
-			toggleVisibility();
-
-			// --- DROPBOX UI LOGIC ---
-			const dbxStatusEl = card.querySelector('.dbx-status');
-			const btnLinkDbx = card.querySelector('.btn-link-dbx');
-			
-			if (dbxStatusEl) {
-			    dbxStatusEl.textContent = kc.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked';
-			    dbxStatusEl.style.color = kc.refreshToken ? 'var(--success, green)' : 'var(--danger, red)';
-			}
-			
-			if (btnLinkDbx) {
-			    // Only show the link button if it's NOT linked yet, or if they change the app key
-			    btnLinkDbx.style.display = kc.refreshToken ? 'none' : 'block';
-			    
-			    btnLinkDbx.addEventListener('click', () => {
-			        // Save state immediately before redirecting so the App Key isn't lost
-			        Actions.saveSettings(); 
-			        Actions.linkDropboxPKCE(id);
-			    });
-			}
-			
-			// Re-evaluate the link button visibility if the user edits the App Key
-			appKeyEl.addEventListener('input', () => {
-			    if (btnLinkDbx && kc.refreshToken) {
-			        dbxStatusEl.textContent = '⚠️ App Key changed. Re-link required.';
-			        dbxStatusEl.style.color = '#c98200'; // Warning orange
-			        btnLinkDbx.style.display = 'block';
-			    }
-			});
-			// ------------------------
-
-			card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteKeychain(id));
-
-			DOM.settingsPanel.appendChild(card);
+			DOM.settingsPanel.appendChild(this._createKeychainCard(id, kc, kcTemplate));
 		}
 
 		// ==========================================
-		// SECTION 2: WORKSPACES (MOUNT POINTS)
+		// 2: WORKSPACES (THE FOREST)
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header', style: 'margin-top: 40px;' },
-				h('h2', { style: 'margin: 0;' }, '📁 Workspaces (Mount Points)'),
-				h('button', { 
-					onclick: () => Actions.createWorkspace(), 
-					style: 'background: var(--accent); color: white; border: none;' 
-				}, '+ New Workspace')
+				h('h2', { style: 'margin: 0;' }, '📁 Workspace Forest'),
+				h('button', { onclick: () => Actions.createWorkspace(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Origin Tree')
 			)
 		);
 
-		const wsTemplate = document.getElementById('workspace-card-template');
+		const treeTemplate = document.getElementById('tree-group-template');
+		const rowTemplate = document.getElementById('mount-row-template');
 
-		for (const [id, ws] of Object.entries(AppState.workspaces)) {
-			const isActive = id === AppState.activeWorkspaceId;
-			const clone = wsTemplate.content.cloneNode(true);
-			const card = clone.querySelector('.profile-card');
-
-			if (isActive) card.classList.add('active');
-
-			// Build Title
-			const titleEl = card.querySelector('.ws-title');
-			titleEl.textContent = ws.name;
-			if (isActive) {
-				titleEl.appendChild(h('span', { style: 'color:var(--accent); font-size: 14px;' }, ' (Active)'));
-			}
-
-			// Populate Keychain Foreign Key Dropdown
-			const selectKc = card.querySelector('.ws-keychain');
-			for (const [kcId, keychain] of Object.entries(AppState.keychains)) {
-			    selectKc.appendChild(h('option', { value: kcId }, `${keychain.name} (${keychain.provider})`));
-			}
-			selectKc.value = ws.keychainId || '';
-			
-			// --- WORKSPACE VISIBILITY TOGGLE ---
-			const toggleWsVisibility = () => {
-			    const selectedKcId = selectKc.value;
-			    // Look up the provider of the linked keychain in AppState
-			    const provider = selectedKcId && AppState.keychains[selectedKcId] 
-			        ? AppState.keychains[selectedKcId].provider 
-			        : 'github';
-			        
-			    const isDbx = provider === 'dropbox';
-			    
-			    // Hide GitHub fields if Dropbox is selected
-			    card.querySelectorAll('.ws-gh-only').forEach(el => {
-			        el.style.display = isDbx ? 'none' : 'flex';
-			    });
-			};
-			
-			// Listen for dropdown changes
-			selectKc.addEventListener('change', e => {
-			    ws.keychainId = e.target.value;
-			    toggleWsVisibility();
-			});
-			
-			// Run once on initial render
-			toggleWsVisibility();
-			// -----------------------------------
-
-			// Map String Inputs
-			const fields = ['host', 'owner', 'repo', 'branch', 'rootDir'];
-			fields.forEach(f => {
-				const el = card.querySelector(`.ws-${f}`);
-				el.value = ws[f] || (f === 'branch' ? 'main' : (f === 'host' ? 'https://api.github.com' : ''));
-				el.addEventListener('input', e => ws[f] = e.target.value);
-			});
-
-			// Map Boolean Checkbox
-			const shallowEl = card.querySelector('.ws-shallow');
-			shallowEl.checked = !!ws.shallow;
-			shallowEl.addEventListener('change', e => ws.shallow = e.target.checked);
-
-			// Event Listeners
-			const btnSwitch = card.querySelector('.btn-switch');
-			if (isActive) btnSwitch.remove();
-			else btnSwitch.addEventListener('click', () => Actions.switchWorkspace(id));
-
-			card.querySelector('.btn-clear').addEventListener('click', () => Actions.clearDB(id));
-			card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteWorkspace(id));
-
-			DOM.settingsPanel.appendChild(card);
+		for (const [sig, wsIds] of Object.entries(AppState.workspaceTrees)) {
+			DOM.settingsPanel.appendChild(this._createTreeGroup(sig, wsIds, treeTemplate, rowTemplate));
 		}
 
 		// ==========================================
-		// SECTION 3: GLOBAL SAVE
+		// 3: GLOBAL SAVE
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('button', { 
@@ -1474,6 +1519,192 @@ Unsupported: {
 				style: 'margin-top: 20px; width: 100%; padding: 12px; background: var(--accent); color: white; border: none; font-size: 16px; font-weight: bold; border-radius: 6px;'
 			}, '💾 Save All Configurations')
 		);
+	},
+
+	// =====================================================================
+	// UI SETTINGS HELPERS
+	// =====================================================================
+
+	_createKeychainCard(id, kc, template) {
+		const clone = template.content.cloneNode(true);
+		const card = clone.querySelector('.profile-card');
+
+		card.querySelector('.kc-title').textContent = kc.name;
+
+		const providerEl = card.querySelector('.kc-provider');
+		const tokenEl = card.querySelector('.kc-token');
+		const appKeyEl = card.querySelector('.kc-appkey');
+
+		providerEl.value = kc.provider || 'github';
+		tokenEl.value = kc.token || '';
+		appKeyEl.value = kc.appKey || '';
+
+		providerEl.addEventListener('change', e => kc.provider = e.target.value);
+		tokenEl.addEventListener('input', e => kc.token = e.target.value);
+		appKeyEl.addEventListener('input', e => kc.appKey = e.target.value);
+
+		const toggleVisibility = () => {
+			const isDbx = providerEl.value === 'dropbox';
+			card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
+			card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
+		};
+		providerEl.addEventListener('change', toggleVisibility);
+		toggleVisibility();
+
+		const dbxStatusEl = card.querySelector('.dbx-status');
+		const btnLinkDbx = card.querySelector('.btn-link-dbx');
+		
+		if (dbxStatusEl) {
+			dbxStatusEl.textContent = kc.refreshToken ? '✅ Linked (Auto-refresh active)' : '❌ Not linked';
+			dbxStatusEl.style.color = kc.refreshToken ? 'var(--success, green)' : 'var(--danger, red)';
+		}
+		
+		if (btnLinkDbx) {
+			btnLinkDbx.style.display = kc.refreshToken ? 'none' : 'block';
+			btnLinkDbx.addEventListener('click', () => {
+				Actions.saveSettings(); 
+				Actions.linkDropboxPKCE(id);
+			});
+		}
+		
+		appKeyEl.addEventListener('input', () => {
+			if (btnLinkDbx && kc.refreshToken) {
+				dbxStatusEl.textContent = '⚠️ App Key changed. Re-link required.';
+				dbxStatusEl.style.color = '#c98200';
+				btnLinkDbx.style.display = 'block';
+			}
+		});
+
+		card.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteKeychain(id));
+		return card;
+	},
+
+	_createTreeGroup(sig, wsIds, treeTemplate, rowTemplate) {
+		const refWs = AppState.workspaces[wsIds[0]];
+		const refKc = AppState.keychains[refWs.keychainId];
+
+		const clone = treeTemplate.content.cloneNode(true);
+		const groupEl = clone.querySelector('.tree-group');
+		const listEl = groupEl.querySelector('.mount-list');
+		const titleEl = groupEl.querySelector('.tree-title');
+
+		// Set dynamic title
+		if (sig.startsWith('github|')) {
+		    titleEl.textContent = `🐙 ${refWs.owner || '(No Owner)'} / ${refWs.repo || '(No Repo)'}`;
+		} else {
+		    titleEl.textContent = `🗄️ Dropbox Storage`;
+		}
+
+		// Bind Shared Inputs
+		const selectKc = groupEl.querySelector('.tree-keychain');
+		const ownerEl = groupEl.querySelector('.tree-owner');
+		const repoEl = groupEl.querySelector('.tree-repo');
+		const branchEl = groupEl.querySelector('.tree-branch');
+		const hostEl = groupEl.querySelector('.tree-host');
+		const ghContainer = groupEl.querySelector('.tree-gh-only');
+
+		// Populate Keychains Dropdown
+		for (const [kcId, keychain] of Object.entries(AppState.keychains)) {
+			selectKc.appendChild(h('option', { value: kcId }, `${keychain.name} (${keychain.provider})`));
+		}
+		selectKc.value = refWs.keychainId || '';
+
+		// Visibility Toggle for Dropbox
+		const toggleGhVisibility = () => {
+			const selectedKcId = selectKc.value;
+			const provider = selectedKcId && AppState.keychains[selectedKcId] 
+				? AppState.keychains[selectedKcId].provider : 'github';
+			ghContainer.style.display = (provider === 'dropbox') ? 'none' : 'flex';
+		};
+		toggleGhVisibility();
+
+		// Setup Values
+		ownerEl.value = refWs.owner || '';
+		repoEl.value = refWs.repo || '';
+		branchEl.value = refWs.branch || '';
+		hostEl.value = refWs.host || '';
+
+		// Bind Events (Propagate changes to ALL workspaces in this tree instantly)
+		selectKc.addEventListener('change', e => {
+			wsIds.forEach(id => AppState.workspaces[id].keychainId = e.target.value);
+			toggleGhVisibility();
+		});
+		ownerEl.addEventListener('input', e => {
+			wsIds.forEach(id => AppState.workspaces[id].owner = e.target.value);
+			titleEl.textContent = ` ${e.target.value || '(No Owner)'} / ${repoEl.value || '(No Repo)'}`;
+		});
+		repoEl.addEventListener('input', e => {
+			wsIds.forEach(id => AppState.workspaces[id].repo = e.target.value);
+			titleEl.textContent = ` ${ownerEl.value || '(No Owner)'} / ${e.target.value || '(No Repo)'}`;
+		});
+		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
+		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
+
+		// Mount Point Spawner
+		groupEl.querySelector('.btn-add-mount').addEventListener('click', () => Actions.createMountPoint(refWs));
+
+		// Render the child rows
+		for (const id of wsIds) {
+			const ws = AppState.workspaces[id];
+			const isActive = id === AppState.activeWorkspaceId;
+			listEl.appendChild(this._createMountRow(id, ws, wsIds, isActive, rowTemplate));
+		}
+
+		return groupEl;
+	},
+
+	_createMountRow(id, ws, wsIds, isActive, rowTemplate) {
+		const rowClone = rowTemplate.content.cloneNode(true);
+		const rowEl = rowClone.querySelector('.mount-row');
+
+		if (isActive) {
+			rowEl.style.borderColor = 'var(--accent)';
+			rowEl.style.background = '#f0f7ff';
+		}
+
+		const nameEl = rowEl.querySelector('.ws-name');
+		const rootEl = rowEl.querySelector('.ws-rootDir');
+		const shallowEl = rowEl.querySelector('.ws-shallow');
+		const warningEl = rowEl.querySelector('.leaf-warning');
+
+		nameEl.value = ws.name;
+		nameEl.addEventListener('input', e => ws.name = e.target.value);
+
+		rootEl.value = ws.rootDir || '';
+		rootEl.addEventListener('input', e => ws.rootDir = e.target.value);
+
+		// Leaf Constraint Visualization
+		const currentRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const hasChildren = wsIds.some(childId => {
+			if (childId === id) return false;
+			const childRoot = (AppState.workspaces[childId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return childRoot.startsWith(currentRoot ? currentRoot + '/' : '');
+		});
+
+		if (hasChildren) {
+			shallowEl.checked = true;
+			shallowEl.disabled = true;
+			ws.shallow = true; 
+			warningEl.style.display = 'inline';
+		} else {
+			shallowEl.checked = !!ws.shallow;
+			shallowEl.addEventListener('change', e => ws.shallow = e.target.checked);
+		}
+
+		const btnSwitch = rowEl.querySelector('.btn-switch');
+		if (isActive) {
+			btnSwitch.textContent = 'Active';
+			btnSwitch.disabled = true;
+			btnSwitch.style.background = 'var(--accent)';
+			btnSwitch.style.color = 'white';
+		} else {
+			btnSwitch.addEventListener('click', () => Actions.switchWorkspace(id));
+		}
+
+		rowEl.querySelector('.btn-clear').addEventListener('click', () => Actions.clearDB(id));
+		rowEl.querySelector('.btn-delete').addEventListener('click', () => Actions.deleteWorkspace(id));
+
+		return rowEl;
 	},
 	updateWorkspaceIndicator() {
 		if (!DOM.workspaceIndicator) return;
@@ -1538,40 +1769,73 @@ Unsupported: {
 	// WORKSPACE MANAGEMENT
 	// =====================================================================
 	createWorkspace() {
-		const name = prompt('Enter workspace name (e.g., Docs, Frontend src):');
-		if (!name) return;
-
 		const kcIds = Object.keys(AppState.keychains);
 		if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
+		const repoName = prompt('Enter Repository (e.g., torvalds/linux) or leave blank for Dropbox:');
+		if (repoName === null) return;
+
+		let owner = '';
+		let repo = repoName;
+		if (repoName.includes('/')) {
+			[owner, repo] = repoName.split('/');
+		}
+
+		// Auto-select the right keychain provider based on input
+		let targetKcId = kcIds[0];
+		if (!repoName) {
+			const dbxKc = kcIds.find(id => AppState.keychains[id].provider === 'dropbox');
+			if (dbxKc) targetKcId = dbxKc;
+		} else {
+			const ghKc = kcIds.find(id => AppState.keychains[id].provider === 'github');
+			if (ghKc) targetKcId = ghKc;
+		}
+
 		const id = 'ws_' + Date.now();
 		AppState.workspaces[id] = {
-			name: name,
+			name: repoName ? repoName : 'Dropbox Storage',
 			dbName: 'NotesDB_' + id, 
-			keychainId: kcIds[0], // Default to the first available keychain
+			keychainId: targetKcId,
 			host: 'https://api.github.com', 
-			owner: '', 
-			repo: '', 
-			branch: 'main',
-			rootDir: '',      // e.g., 'src/docs'
-			shallow: false,   // false = recursive IDE view, true = folder exploration
-			pins: []
+			owner: owner.trim(), 
+			repo: repo.trim(), 
+			branch: repoName ? 'main' : '',
+			rootDir: '',      
+			shallow: false
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
 		this.switchWorkspace(id);
 		this.openSettings();
 	},
+	createMountPoint(parentWs) {
+		const newRoot = prompt(`Enter sub-directory path to mount (e.g., src/docs):`);
+		if (newRoot === null) return; // User cancelled
 
+		const id = 'ws_' + Date.now();
+		
+		// Clone all origin data, but reset the mount-specific data
+		AppState.workspaces[id] = {
+			name: parentWs.name + ' (' + newRoot + ')',
+			dbName: 'NotesDB_' + id, 
+			keychainId: parentWs.keychainId,
+			host: parentWs.host, 
+			owner: parentWs.owner, 
+			repo: parentWs.repo, 
+			branch: parentWs.branch,
+			rootDir: newRoot,      
+			shallow: false
+		};
+
+		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
+		UI.renderSettings(); // Re-render to show the new row instantly
+	},
 	switchWorkspace(id, skipHistory = false) {
 		const ws = AppState.workspaces[id];
 		if (!ws) return;
 
 		AppState.activeWorkspaceId = id;
 		localStorage.setItem('notes_active_workspace', id);
-
-		if (!ws.pins) ws.pins = [];
-		AppState.pins = ws.pins;
 
 		UI.resetEditor();
 		DOM.searchBar.value = '';
@@ -1643,53 +1907,65 @@ Unsupported: {
 	// FILE EDITOR OPERATIONS
 	// =====================================================================
 	async openFile(filename, skipHistory = false) {
+		// --- 1. MOUNT POINT INTERCEPTOR ---
+		// We do this BEFORE the database check to catch virtual grandchild folders
+		const ws = AppState.activeWorkspace;
+		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
+
+		const sig = AppState.activeTreeSignature;
+		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
+
+		const matchedId = treeWorkspaces.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === absolutePath;
+		});
+
+		if (matchedId) {
+			return this.switchWorkspace(matchedId); // Teleport!
+		}
+		// ----------------------------------
+
 		const note = await DBService.get(filename);
 		if (!note) return;
 
-		// --- THE SYMLINK INTERCEPTOR ---
+		// --- 2. UNMOUNTED FOLDER INTERCEPTOR ---
+		if (note.is_folder) {
+			return UI.showStatus(`Cannot open directory: No sub-workspace is mounted for '/${absolutePath}'.`, true);
+		}
+		// ---------------------------------------
+
+		// --- 3. THE SYMLINK INTERCEPTOR ---
 		if (filename.endsWith('.symlink') && !AppState.isSymlinkEditMode) {
 			try {
 				const payload = JSON.parse(note.content || '{}');
-
-				// Define which fields are actually valid for routing
 				const matchableFields = ['provider', 'host', 'owner', 'repo', 'branch', 'rootDir'];
 				const payloadKeys = Object.keys(payload).filter(k => matchableFields.includes(k));
 
-				if (payloadKeys.length === 0) {
-					return UI.showStatus(`⚠️ Error: Symlink contains no valid routing fields.`, true);
-				}
+				if (payloadKeys.length === 0) return UI.showStatus(`⚠️ Error: Symlink contains no valid fields.`, true);
 
-				// Gather all workspaces that match every field provided in the payload
 				const matchedIds = Object.keys(AppState.workspaces).filter(id => {
-					const ws = AppState.workspaces[id];
-
+					const wsTarget = AppState.workspaces[id];
 					return payloadKeys.every(key => {
-						// Special normalization for rootDir
 						if (key === 'rootDir') {
-							const wsRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+							const wsRoot = (wsTarget.rootDir || '').replace(/(^\/+|\/+$)/g, '');
 							const targetRoot = (payload.rootDir || '').replace(/(^\/+|\/+$)/g, '');
 							return wsRoot === targetRoot;
 						}
-						// Strict equality for all other provided fields
-						return ws[key] === payload[key];
+						return wsTarget[key] === payload[key];
 					});
 				});
 
-				// Evaluate the match results
-				if (matchedIds.length === 1) {
-					this.switchWorkspace(matchedIds[0]); // Teleport!
-					return; 
-				} else if (matchedIds.length > 1) {
-					return UI.showStatus(`❌ Ambiguous symlink: Matches ${matchedIds.length} workspaces. Be more specific.`, true);
-				} else {
-					return UI.showStatus(`❌ Target workspace not found locally.`, true);
-				}
+				if (matchedIds.length === 1) return this.switchWorkspace(matchedIds[0]);
+				else if (matchedIds.length > 1) return UI.showStatus(`❌ Ambiguous symlink.`, true);
+				else return UI.showStatus(`❌ Target workspace not found locally.`, true);
 
 			} catch (err) {
 				return UI.showStatus(`⚠️ Error: Malformed symlink JSON.`, true);
 			}
 		}
-		// -------------------------------
+		// ----------------------------------
 
 		// Standard Editor Boot Sequence
 		if (!skipHistory) {
@@ -1841,14 +2117,25 @@ Unsupported: {
 			UI.showStatus('Refreshing file list remotely...');
 			const treeData = await SyncService.getTree();
 
-			const files = treeData.tree.filter(item => item.type === 'blob');
+			// FIX: Keep both blobs and folders so they enter IndexedDB
+			const files = treeData.tree.filter(item => item.type === 'blob' || item.type === 'folder');
 
 			for (const file of files) {
 				let localNote = await DBService.get(file.path);
+				const isFolder = file.type === 'folder';
+
 				if (!localNote) {
-					await DBService.put({ filename: file.path, content: '', last_synced_sha: null, remote_sha: file.sha, is_dirty: false });
+					await DBService.put({ 
+						filename: file.path, 
+						content: isFolder ? null : '', // Folders don't need content payloads
+						last_synced_sha: null, 
+						remote_sha: file.sha, 
+						is_dirty: false,
+						is_folder: isFolder // Explicitly flag it for the router
+					});
 				} else {
 					localNote.remote_sha = file.sha;
+					localNote.is_folder = isFolder; 
 					await DBService.put(localNote);
 				}
 			}
@@ -1893,7 +2180,9 @@ Unsupported: {
 					} else {
 						UI.showStatus(`Loading diff engine...`);
 						try {
-							await Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/jsdiff/5.1.0/diff.min.js");
+							await Utils.loadResource('https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js',
+								'sha512-8pp155siHVmN5FYcqWNSFYn8Efr61/7mfg/F15auw8MCL3kvINbNT7gT8LldYPq3i/GkSADZd4IcUXPBoPP8gA=='
+							);
 						} catch (err) {
 							return UI.showStatus(`Error: Failed to load diff engine. Merge cancelled.`, true);
 						}
@@ -1972,39 +2261,79 @@ Unsupported: {
 	},
 
 	// =====================================================================
-	// PIN OPERATIONS (Workspace Contextual)
+	// PIN OPERATIONS (Forest Contextual)
 	// =====================================================================
 	addPin() {
-		const pin = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):',
-			AppState.currentFilename || '');
-		if (!pin) return;
+		const pinRelative = prompt('Enter a filename or directory path to pin (e.g., docs/ or README.md):', AppState.currentFilename || '');
+		if (!pinRelative) return;
 
-		if (!AppState.pins.includes(pin)) {
-			AppState.pins.push(pin);
-			
-			this.saveSettings(); 
+		// 1. Compute the absolute path for Forest-level storage
+		const ws = AppState.activeWorkspace;
+		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanFile = pinRelative.replace(/(^\/+|\/+$)/g, '');
+		const absolutePath = cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
+
+		// 2. Save it to the Tree Signature
+		const sig = AppState.activeTreeSignature;
+		if (!sig) return;
+
+		if (!AppState.treePins[sig]) AppState.treePins[sig] = [];
+		if (!AppState.treePins[sig].includes(absolutePath)) {
+			AppState.treePins[sig].push(absolutePath);
+			localStorage.setItem('notes_tree_pins', JSON.stringify(AppState.treePins));
 			UI.renderPins();
 		}
 	},
 
-	removePin(pin, event) {
+	removePin(absolutePath, event) {
 		event.stopPropagation();
-		const index = AppState.pins.indexOf(pin);
+		const sig = AppState.activeTreeSignature;
+		if (!sig || !AppState.treePins[sig]) return;
+
+		const index = AppState.treePins[sig].indexOf(absolutePath);
 		if (index > -1) {
-			AppState.pins.splice(index, 1);
-			this.saveSettings(); 
+			AppState.treePins[sig].splice(index, 1);
+			localStorage.setItem('notes_tree_pins', JSON.stringify(AppState.treePins));
 			UI.renderPins();
 		}
 	},
 
-	async handlePinClick(pin) {
-		const note = await DBService.get(pin);
+	async handlePinClick(absolutePath) {
+		const sig = AppState.activeTreeSignature;
+		const treeWorkspaces = AppState.workspaceTrees[sig] || [];
 
-		if (note) {
-			this.openFile(pin);
-		} else {
-			DOM.searchBar.value = pin;
-			UI.renderFileList(pin, false);
+		// 1. "Best Fit" Router: Find the deepest workspace that encapsulates this pin
+		const matchedId = treeWorkspaces.find(id => {
+			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
+		});
+
+		if (!matchedId) {
+			return UI.showStatus(`Cannot open pin: No workspace is mounted for this path.`, true);
+		}
+
+		// 2. Switch to the target environment
+		if (matchedId !== AppState.activeWorkspaceId) {
+			this.switchWorkspace(matchedId);
+		}
+
+		// 3. Slice the absolute path back down to a relative path for the new VFS
+		const targetRoot = (AppState.workspaces[matchedId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		let relativePath = absolutePath;
+		if (targetRoot && absolutePath.startsWith(targetRoot)) {
+			relativePath = absolutePath.substring(targetRoot.length).replace(/^\//, ''); 
+		}
+
+		// 4. Open the file (or directory)
+		if (relativePath) {
+			const note = await DBService.get(relativePath);
+			if (note) {
+				this.openFile(relativePath);
+			} else {
+				// Fallback: Dump it in the search bar if it hasn't been pulled locally yet
+				DOM.searchBar.value = relativePath;
+				UI.renderFileList(relativePath, false);
+			}
 		}
 	},
 
