@@ -34,7 +34,7 @@
 			}
 		</script>
 
-		<title>Local-First Notes</title>
+		<title>gh-memo</title>
 
 		<style>
 			/* styles.css starts here */
@@ -222,6 +222,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
                     <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
                     <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
                     <input type="text" class="tree-host" placeholder="Host" style="width: 150px; padding: 4px;">
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
+                        <input type="checkbox" class="tree-askCommit" style="width: auto;"> Ask for commit msg
+                    </label>
                 </div>
             </div>
         </div>
@@ -666,13 +669,13 @@ const GitHubService = {
 		return await res.json();
 	},
 
-	async putFile(filename, contentBase64, sha, workspace, keychain) {
+	async putFile(filename, contentBase64, sha, commitMsg, workspace, keychain) {
 		const fullPath = this._getFullPath(workspace.rootDir, filename);
 		const { host, owner, repo, branch } = workspace;
 		const url = `${host}/repos/${owner}/${repo}/contents/${fullPath}`;
 
 		const payload = { 
-			message: `Update ${filename}`, 
+			message: commitMsg || `Update ${filename}`, 
 			content: contentBase64, 
 			branch: branch 
 		};
@@ -872,7 +875,7 @@ const DropboxService = {
 		return { content: Utils.utoa(await res.text()), sha: rev };
 	},
 
-	async putFile(filename, base64Content, sha, workspace, keychain) {
+	async putFile(filename, base64Content, sha, commitMsg, workspace, keychain) {
 		const fullPath = this._getFullPath(workspace.rootDir, filename);
 		const binaryString = atob(base64Content);
 		
@@ -927,7 +930,7 @@ const SyncService = {
     },
     getTree: () => SyncService.active.getTree(AppState.activeWorkspace, AppState.activeKeychain),
     getFile: (filename) => SyncService.active.getFile(filename, AppState.activeWorkspace, AppState.activeKeychain),
-    putFile: (filename, content, sha) => SyncService.active.putFile(filename, content, sha, AppState.activeWorkspace, AppState.activeKeychain),
+    putFile: (filename, content, sha, commitMsg) => SyncService.active.putFile(filename, content, sha, commitMsg, AppState.activeWorkspace, AppState.activeKeychain),
     deleteFile: (filename, sha) => SyncService.active.deleteFile(filename, sha, AppState.activeWorkspace, AppState.activeKeychain),
     fileUploadSizeLimit: () => SyncService.active.fileUploadSizeLimit(),
 };
@@ -1246,6 +1249,7 @@ Unsupported: {
 	resetEditor() {
 		AppState.isViewMode = false;
 		AppState.currentFilename = null;
+		document.title = 'gh-memo';
 
 		// 1. Unmount any active plugin to free memory
 		if (AppState.activePlugin && AppState.activePlugin.unmount) {
@@ -1270,6 +1274,7 @@ Unsupported: {
 	async setEditorActive(filename, content) {
 		AppState.currentFilename = filename;
 		DOM.filenameLabel.textContent = filename;
+		document.title = filename;
 		DOM.statusBar.style.display = 'none';
 
 		// Reset any previous cross-tab freezes
@@ -1483,7 +1488,7 @@ Unsupported: {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header' },
-				h('h2', { style: 'margin: 0;' }, '🔑 Keychains (Credentials)'),
+				h('h2', { style: 'margin: 0;' }, 'Keychains (Credentials)'),
 				h('button', { onclick: () => Actions.createKeychain(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Keychain')
 			)
 		);
@@ -1498,7 +1503,7 @@ Unsupported: {
 		// ==========================================
 		DOM.settingsPanel.appendChild(
 			h('div', { class: 'settings-header', style: 'margin-top: 40px;' },
-				h('h2', { style: 'margin: 0;' }, '📁 Workspace Forest'),
+				h('h2', { style: 'margin: 0;' }, 'Workspaces'),
 				h('button', { onclick: () => Actions.createWorkspace(), style: 'background: var(--accent); color: white; border: none;' }, '+ New Origin Tree')
 			)
 		);
@@ -1601,6 +1606,7 @@ Unsupported: {
 		const repoEl = groupEl.querySelector('.tree-repo');
 		const branchEl = groupEl.querySelector('.tree-branch');
 		const hostEl = groupEl.querySelector('.tree-host');
+		const commitToggle = groupEl.querySelector('.tree-askCommit');
 		const ghContainer = groupEl.querySelector('.tree-gh-only');
 
 		// Populate Keychains Dropdown
@@ -1623,6 +1629,7 @@ Unsupported: {
 		repoEl.value = refWs.repo || '';
 		branchEl.value = refWs.branch || '';
 		hostEl.value = refWs.host || '';
+		commitToggle.checked = !!refWs.askForCommitMsg;
 
 		// Bind Events (Propagate changes to ALL workspaces in this tree instantly)
 		selectKc.addEventListener('change', e => {
@@ -1639,6 +1646,7 @@ Unsupported: {
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].branch = e.target.value));
 		hostEl.addEventListener('input', e => wsIds.forEach(id => AppState.workspaces[id].host = e.target.value));
+		commitToggle.addEventListener('change', e => wsIds.forEach(id => AppState.workspaces[id].askForCommitMsg = e.target.checked));
 
 		// Mount Point Spawner
 		groupEl.querySelector('.btn-add-mount').addEventListener('click', () => Actions.createMountPoint(refWs));
@@ -1772,7 +1780,7 @@ Unsupported: {
 		const kcIds = Object.keys(AppState.keychains);
 		if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
-		const repoName = prompt('Enter Repository (e.g., torvalds/linux) or leave blank for Dropbox:');
+		const repoName = prompt('Enter Repository (e.g., rust-lang/cargo) or leave blank for Dropbox:');
 		if (repoName === null) return;
 
 		let owner = '';
@@ -1801,7 +1809,8 @@ Unsupported: {
 			repo: repo.trim(), 
 			branch: repoName ? 'main' : '',
 			rootDir: '',      
-			shallow: false
+			shallow: false,
+			askForCommitMsg: false,
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
@@ -1824,7 +1833,8 @@ Unsupported: {
 			repo: parentWs.repo, 
 			branch: parentWs.branch,
 			rootDir: newRoot,      
-			shallow: false
+			shallow: false,
+			askForCommitMsg: !!parentWs.askForCommitMsg,
 		};
 
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
@@ -2227,6 +2237,16 @@ Unsupported: {
 			const note = await DBService.get(filename);
 			if (!note || !note.is_dirty) return UI.showStatus(`${filename} is already up to date.`);
 
+			let commitMsg = null;
+			const kc = AppState.activeKeychain;
+			
+			// Guard: Only prompt if the toggle is on AND the provider is not Dropbox
+			if (AppState.activeWorkspace.askForCommitMsg && kc && kc.provider !== 'dropbox') {
+				const userMsg = prompt(`Enter commit message for ${filename}:`);
+				if (userMsg == null) return UI.showStatus("Push cancelled.");
+				if (userMsg.trim()) commitMsg = userMsg.trim();
+			}
+
 			UI.showStatus(`Pushing ${filename}...`);
 
 			let base64Content;
@@ -2245,7 +2265,7 @@ Unsupported: {
 				base64Content = Utils.utoa(String(note.content));
 			}
 
-			const responseData = await SyncService.putFile(filename, base64Content, note.last_synced_sha);
+			const responseData = await SyncService.putFile(filename, base64Content, note.last_synced_sha, commitMsg);
 
 			note.last_synced_sha = responseData.content.sha;
 			note.remote_sha = responseData.content.sha;
@@ -2450,7 +2470,8 @@ Unsupported: {
 			branch: 'main',
 			rootDir: '',      
 			shallow: false,
-			pins: []
+			pins: [],
+			askForCommitMsg: false,
 		};
 		localStorage.setItem('notes_workspaces', JSON.stringify(AppState.workspaces));
 
