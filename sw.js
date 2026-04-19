@@ -43,6 +43,7 @@ const urlsToCache = [
   './manifest.json',
   './icon.png',
   './favicon.ico',
+  'https://cdnjs.cloudflare.com/ajax/libs/jsdiff/8.0.2/diff.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/marked/16.3.0/lib/marked.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.7/purify.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css',
