@@ -1127,8 +1127,11 @@ Markdown: {
 				Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js", "sha512-LQNxIMR5rXv7o+b1l8+N1EZMfhG7iFZ9HhnbJkTp4zjNr5Wvst75AqUeFDxeRUa7l5vEDyUiAip//r+EFLLCyA=="),
 				Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js", "sha512-EBLzUL8XLl+va/zAsmXwS7Z2B1F9HUHkZwyS/VKwh3S7T/U0nF4BaU29EP/ZSf6zgiIxYAnKLu6bJ8dqpmX5uw=="),
 				Utils.loadResource("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css", "sha512-0aPQyyeZrWj9sCA46UlmWgKOP0mUipLQ6OZXu8l4IcAmD2u31EPEy9VcIMvl7SoAaKe8bLXZhYoMaE/in+gcgA=="),
-				Utils.loadResource("https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.8/lib/index.umd.min.js", "sha384-kZc6RA5jLUXlZ3Qx2c6lIk/01XDpL5lC9GwHtLLboKsl0mBL4wQtflWwqQIGEMgq"),
 			]);
+
+			// Load the extension after KaTeX has been loaded
+			await Utils.loadResource("https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.8/lib/index.umd.min.js", "sha384-kZc6RA5jLUXlZ3Qx2c6lIk/01XDpL5lC9GwHtLLboKsl0mBL4wQtflWwqQIGEMgq");
+
 			marked.use(
 				window.markedKatex({ throwOnError: false, output: 'html' }),
 				{

@@ -71,6 +71,10 @@ const urlsToCache = [
   
 ];
 
+const allowedHosts = new Set(
+  urlsToCache.map(requestUrl => new URL(requestUrl, location.origin).hostname)
+);
+
 const CACHE_NAME = 'notes-cache-v1';
 
 self.addEventListener('install', event => {
@@ -81,6 +85,14 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+
+  if (!allowedHosts.has(url.hostname)) {
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then(response => response || fetch(event.request))
