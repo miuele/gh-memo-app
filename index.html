@@ -137,6 +137,39 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 @media (max-width: 768px) {
 	#sidebar { width: 100%; position: absolute; height: 100%; z-index: 50; }
 	#sidebar.collapsed { width: 0; }
+
+	/* Strip stays fixed to the left edge above the sidebar overlay.
+	   Width raised to 20px for a reachable finger target; col-resize cursor
+	   suppressed since it has no meaning on touch. */
+	#toggle-sidebar {
+		position: fixed; left: 0; top: 0; height: 100vh; width: 20px;
+		z-index: 55; cursor: default;
+	}
+
+	/* Status bar floats above everything, including the sidebar overlay,
+	   as a standard mobile toast anchored to the bottom of the visual viewport. */
+	#status-bar {
+		position: fixed; bottom: 0; left: 0; width: 100%;
+		box-sizing: border-box; z-index: 60;
+	}
+
+	/* Hide the text labels on pull/push/delete, leaving only the emoji.
+	   Keeps the buttons reachable without crowding the header. */
+	.btn-label { display: none; }
+
+	/* Truncate long filenames with an ellipsis rather than
+	   overflowing into the button group. min-width: 0 is required to
+	   allow a flex child to shrink below its intrinsic content size. */
+	#current-filename {
+		overflow: hidden; text-overflow: ellipsis;
+		white-space: nowrap; min-width: 0;
+	}
+
+	/* Recover the 80px of horizontal padding wasted on narrow screens. */
+	#settings-panel { padding: 15px; }
+
+	/* Increase pin-tag tap target to approach the 44px touch minimum. */
+	.pin-tag { padding: 8px 12px; font-size: 12px; }
 }
 .pin-tag {
 	background: var(--accent); color: white; padding: 3px 8px; border-radius: 12px;
@@ -217,9 +250,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
-					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️ Pull File</button>
-					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️ Push File</button>
-					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">Delete</button>
+					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️<span class="btn-label"> Pull File</span></button>
+					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️<span class="btn-label"> Push File</span></button>
+					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">🗑️<span class="btn-label"> Delete</span></button>
 				</div>
 			</div>
 			<div id="editor-container">
@@ -1515,6 +1548,13 @@ Unsupported: {
 		AppState.activePlugin = plugin;
 
 		this.applyModeVisibility();
+
+		// On mobile the sidebar is a full-screen overlay. Close it automatically
+		// when a file is opened so the editor is immediately visible without a
+		// manual tap on the toggle strip.
+		if (window.innerWidth <= 768 && !DOM.sidebar.classList.contains('collapsed')) {
+			this.toggleSidebar();
+		}
 	},
 
 	applyModeVisibility() {
