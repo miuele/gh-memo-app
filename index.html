@@ -294,7 +294,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 		<script>
 
 			<!-- Core.js starts here -->
-	const AppState = {
+	// Computes a stable string key (the "tree signature") that identifies which
+// remote origin a workspace is rooted in. All workspaces sharing the same
+// signature belong to the same logical file tree ("forest tree").
+// Extracted here to eliminate duplication between the activeTreeSignature
+// getter and the workspaceTrees getter, both of which need the same logic.
+function computeTreeSig(ws, kc) {
+	const provider = kc ? kc.provider : 'github';
+	if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
+	return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+}
+
+const AppState = {
     renderId: 0,
     
     // Tier 1: The Credentials
@@ -314,38 +325,26 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     get activeTreeSignature() {
         const ws = this.activeWorkspace;
         if (!ws) return null;
-        const kc = this.activeKeychain;
-        const provider = kc ? kc.provider : 'github';
-        
-        // Dropbox instances are isolated strictly by the account token they use
-        if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
-        
-        // Git instances are isolated by their absolute remote origin
-        return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
+        return computeTreeSig(ws, this.activeKeychain);
     },
 
     get workspaceTrees() {
         const trees = {};
-        
+
         for (const [id, ws] of Object.entries(this.workspaces)) {
             const kc = this.keychains[ws.keychainId];
-            const provider = kc ? kc.provider : 'github';
-            
-            let sig;
-            if (provider === 'dropbox') sig = `dropbox|${ws.keychainId}`;
-            else sig = `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
-            
+            const sig = computeTreeSig(ws, kc);
             if (!trees[sig]) trees[sig] = [];
             trees[sig].push(id);
         }
 
-        // Sort each tree's workspace IDs by rootDir length (Deepest paths first)
-        // This guarantees the Router will evaluate the most specific "Best Fit" workspace first
+        // Sort each tree's workspace IDs by rootDir length (deepest paths first)
+        // so the Router always evaluates the most specific "Best Fit" workspace first.
         for (const sig in trees) {
             trees[sig].sort((a, b) => {
-                const rootA = (this.workspaces[a].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-                const rootB = (this.workspaces[b].rootDir || '').replace(/(^\/+|\/+$)/g, '');
-                return rootB.length - rootA.length; 
+                const rootA = Utils.cleanPath(this.workspaces[a].rootDir);
+                const rootB = Utils.cleanPath(this.workspaces[b].rootDir);
+                return rootB.length - rootA.length;
             });
         }
 
@@ -373,16 +372,16 @@ const VFS = {
 	// 1. Local -> Global: Gets the absolute forest path for a local file
 	getAbsolutePath(workspaceId, filename) {
 		const ws = AppState.workspaces[workspaceId];
-		if (!ws) return (filename || '').replace(/(^\/+|\/+$)/g, '');
+		if (!ws) return Utils.cleanPath(filename);
 
-		const cleanRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanRoot = Utils.cleanPath(ws.rootDir);
+		const cleanFile = Utils.cleanPath(filename);
 		return [cleanRoot, cleanFile].filter(Boolean).join('/');
 	},
 
 	// 2. Global -> Local: Slices a forest path down for a specific workspace
 	getRelativePath(workspaceId, absolutePath) {
-		const targetRoot = (AppState.workspaces[workspaceId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const targetRoot = Utils.cleanPath(AppState.workspaces[workspaceId].rootDir);
 		if (targetRoot && absolutePath.startsWith(targetRoot)) {
 			return absolutePath.substring(targetRoot.length).replace(/^\//, '');
 		}
@@ -396,7 +395,7 @@ const VFS = {
 
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
 		return treeWsIds.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			return targetRoot === '' || absolutePath === targetRoot || absolutePath.startsWith(targetRoot + '/');
 		});
 	},
@@ -407,13 +406,13 @@ const VFS = {
 		if (!sig) return [];
 
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
-		const currentRoot = (AppState.activeWorkspace.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const currentRoot = Utils.cleanPath(AppState.activeWorkspace.rootDir);
 		const virtuals = [];
 
 		treeWsIds.forEach(id => {
 			if (id === AppState.activeWorkspaceId) return;
 
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			if (targetRoot && (currentRoot === '' || targetRoot.startsWith(currentRoot + '/'))) {
 				const relativePath = currentRoot === '' ? targetRoot : targetRoot.substring(currentRoot.length + 1);
 				virtuals.push(relativePath);
@@ -429,7 +428,7 @@ const VFS = {
 		if (!sig) return null;
 		const treeWsIds = AppState.workspaceTrees[sig] || [];
 		return treeWsIds.find(id => {
-			const targetRoot = (AppState.workspaces[id].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const targetRoot = Utils.cleanPath(AppState.workspaces[id].rootDir);
 			return targetRoot === absolutePath;
 		});
 	},
@@ -465,13 +464,30 @@ function initDOM() {
 	DOM.workspaceIndicator = document.getElementById('workspace-indicator');
 }
 
-
 	<!-- ends here -->
 	
 			<!-- Utils.js starts here -->
 	const Utils = {
 	utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
 	atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0)))),
+
+	// Strips leading and trailing slashes from a path segment.
+	// Centralises the normalization pattern used throughout VFS and the provider services.
+	cleanPath: (str) => (str || '').replace(/(^\/+|\/+$)/g, ''),
+
+	// Converts a Blob to a base64 string using chunked reads to stay within
+	// call-stack limits for large files (avoids a single massive fromCharCode call).
+	blobToBase64: async (blob) => {
+		const buffer = await new Response(blob).arrayBuffer();
+		const bytes = new Uint8Array(buffer);
+		let binary = '';
+		const chunkSize = 8192;
+		for (let i = 0; i < bytes.length; i += chunkSize) {
+			binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+		}
+		return btoa(binary);
+	},
+
 	isImageFile: (filename) => /\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(filename || ''),
 	isPdfFile: (filename) => /\.pdf$/i.test(filename || ''),
 	isTextFile: (filename) => {
@@ -575,12 +591,17 @@ function initDOM() {
 
 const h = Utils.h;
 
-
 	<!-- ends here -->
 	
 			<!-- DBService.js starts here -->
 	const DBService = {
 	storeName: 'notes',
+
+	// Cache of open IDBDatabase promises keyed by db name.
+	// Reusing a single connection per database is the correct IDB pattern —
+	// calling indexedDB.open() on every operation creates unnecessary overhead.
+	_dbCache: {},
+
 	// Dynamically read the database name for the active profile
 	get dbName() {
 		const ws = AppState.activeWorkspace;
@@ -591,17 +612,35 @@ const h = Utils.h;
 	},
 
 	init() {
-		return new Promise((resolve, reject) => {
-			const request = indexedDB.open(this.dbName, 1);
+		const name = this.dbName;
+		if (this._dbCache[name]) return this._dbCache[name];
+
+		this._dbCache[name] = new Promise((resolve, reject) => {
+			const request = indexedDB.open(name, 1);
 			request.onupgradeneeded = (e) => {
 				const db = e.target.result;
 				if (!db.objectStoreNames.contains(this.storeName)) {
 					db.createObjectStore(this.storeName, { keyPath: 'filename' });
 				}
 			};
-			request.onsuccess = () => resolve(request.result);
-			request.onerror = () => reject(request.error);
+			request.onsuccess = () => {
+				const db = request.result;
+				// If another context deletes this database (e.g. deleteWorkspace),
+				// close the connection and evict the cache so the next init()
+				// opens a fresh handle rather than using a stale one.
+				db.onversionchange = () => {
+					db.close();
+					delete this._dbCache[name];
+				};
+				resolve(db);
+			};
+			request.onerror = () => {
+				delete this._dbCache[name]; // Don't cache failed opens
+				reject(request.error);
+			};
 		});
+
+		return this._dbCache[name];
 	},
 	async put(note) {
 		const db = await this.init();
@@ -687,7 +726,9 @@ const GitHubService = {
 
 	// The VFS Chroot Translator: Converts local filenames to absolute remote paths
 	_getFullPath(rootDir, filename) {
-		const cleanRoot = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const cleanRoot = Utils.cleanPath(rootDir);
+		// Only strip the leading slash from filename — trailing slashes on
+		// file paths would be a bug upstream, but leading ones are routine.
 		const cleanFile = (filename || '').replace(/^\/+/, '');
 		return cleanRoot ? `${cleanRoot}/${cleanFile}` : cleanFile;
 	},
@@ -698,7 +739,7 @@ const GitHubService = {
 
 	async _getShallowTree(workspace, keychain) {
 		const { host, owner, repo, branch, rootDir } = workspace;
-		const safePath = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const safePath = Utils.cleanPath(rootDir);
 
 		const url = `${host}/repos/${owner}/${repo}/contents/${safePath}?ref=${branch}`;
 		const res = await this._apiFetch(url, keychain.token);
@@ -716,7 +757,7 @@ const GitHubService = {
 
 	async _getDeepTree(workspace, keychain) {
 		const { host, owner, repo, branch, rootDir } = workspace;
-		const safePath = (rootDir || '').replace(/^\/+|\/+$/g, '');
+		const safePath = Utils.cleanPath(rootDir);
 		const treeRev = `${branch}:${safePath}`;
 
 		const url = `${host}/repos/${owner}/${repo}/git/trees/${treeRev}?recursive=1`;
@@ -837,10 +878,10 @@ const DropboxService = {
 	
 	// Converts local filenames to absolute remote Dropbox paths
 	_getFullPath(rootDir, filename = '') {
-		const cleanRoot = (rootDir || '').replace(/(^\/+|\/+$)/g, '');
-		const cleanFile = (filename || '').replace(/(^\/+|\/+$)/g, '');
+		const cleanRoot = Utils.cleanPath(rootDir);
+		const cleanFile = Utils.cleanPath(filename);
 		const combined = cleanRoot ? (cleanFile ? `${cleanRoot}/${cleanFile}` : cleanRoot) : cleanFile;
-		return combined ? `/${combined}` : ''; // Dropbox strictly requires a leading slash, root is ""
+		return combined ? `/${combined}` : ''; // Dropbox strictly requires a leading slash; root is ""
 	},
 
 	// Slices the absolute Dropbox path back into a VFS relative path
@@ -1306,6 +1347,7 @@ Text: {
 			unmount: function() {
 				this.textarea = null;
 				this.viewLayer = null;
+				this.filename = null;
 			}
 		}),
 },
@@ -1769,10 +1811,10 @@ Unsupported: {
 		rootEl.addEventListener('input', e => ws.rootDir = e.target.value);
 
 		// Leaf Constraint Visualization
-		const currentRoot = (ws.rootDir || '').replace(/(^\/+|\/+$)/g, '');
+		const currentRoot = Utils.cleanPath(ws.rootDir);
 		const hasChildren = wsIds.some(childId => {
 			if (childId === id) return false;
-			const childRoot = (AppState.workspaces[childId].rootDir || '').replace(/(^\/+|\/+$)/g, '');
+			const childRoot = Utils.cleanPath(AppState.workspaces[childId].rootDir);
 			return childRoot.startsWith(currentRoot ? currentRoot + '/' : '');
 		});
 
@@ -2034,9 +2076,7 @@ Unsupported: {
 					const wsTarget = AppState.workspaces[id];
 					return payloadKeys.every(key => {
 						if (key === 'rootDir') {
-							const wsRoot = (wsTarget.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-							const targetRoot = (payload.rootDir || '').replace(/(^\/+|\/+$)/g, '');
-							return wsRoot === targetRoot;
+							return Utils.cleanPath(wsTarget.rootDir) === Utils.cleanPath(payload.rootDir);
 						}
 						return wsTarget[key] === payload[key];
 					});
@@ -2325,15 +2365,7 @@ Unsupported: {
 			let base64Content;
 
 			if (typeof note.content === 'object' && note.content !== null) {
-				const buffer = await new Response(note.content).arrayBuffer();
-				const bytes = new Uint8Array(buffer);
-
-				let binary = '';
-				const chunkSize = 8192;
-				for (let i = 0; i < bytes.length; i += chunkSize) {
-					binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-				}
-				base64Content = btoa(binary);
+				base64Content = await Utils.blobToBase64(note.content);
 			} else {
 				base64Content = Utils.utoa(String(note.content));
 			}
