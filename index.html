@@ -300,6 +300,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 			<div id="editor-header">
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
+					<button id="save-btn" onclick="Actions.saveFile()" style="display:none;">💾<span class="btn-label"> Save File</span></button>
 					<button id="pull-btn" onclick="Actions.pullFile()" style="display:none;">⬇️<span class="btn-label"> Pull File</span></button>
 					<button id="push-btn" onclick="Actions.pushFile()" style="display:none;">⬆️<span class="btn-label"> Push File</span></button>
 					<button id="delete-btn" onclick="Actions.deleteFile()" style="display:none; color: var(--danger);">🗑️<span class="btn-label"> Delete</span></button>
@@ -559,6 +560,7 @@ function initDOM() {
 	DOM.viewLayer = document.getElementById('view-layer');
 	DOM.editLayer = document.getElementById('edit-layer');
 	DOM.filenameLabel = document.getElementById('current-filename');
+	DOM.saveBtn = document.getElementById('save-btn');
 	DOM.pullBtn = document.getElementById('pull-btn');
 	DOM.pushBtn = document.getElementById('push-btn');
 	DOM.deleteBtn = document.getElementById('delete-btn');
@@ -574,6 +576,73 @@ function initDOM() {
 	const Utils = {
 	utoa: (text) => btoa(Array.from(new TextEncoder().encode(text)).map(b => String.fromCharCode(b)).join('')),
 	atou: (b64) => new TextDecoder().decode(new Uint8Array(atob(b64.replace(/[\r\n]+/g, '')).split('').map(c => c.charCodeAt(0)))),
+
+	// Default ceiling for any single remote request (GitHub/Dropbox APIs).
+	// Chosen to comfortably cover slow mobile connections without leaving
+	// the UI hung indefinitely on a stalled socket.
+	NETWORK_TIMEOUT_MS: 10000,
+
+	// A fetch() wrapper that aborts the request after `timeoutMs` and throws
+	// a clearly-labeled Error instead of the raw (unhelpful) AbortError.
+	// Every remote call in the app routes through this so a stalled network
+	// always surfaces a bounded, user-visible failure rather than a silent hang.
+	// Callers can pass their own AbortSignal via options.signal; in that case
+	// we still race it against our own timeout by aborting our controller
+	// whenever the caller's signal aborts.
+	//
+	// IMPORTANT: fetch() resolves as soon as response *headers* arrive, not
+	// once the body has finished downloading. Every call site in this app
+	// reads the body (res.json()/res.blob()/res.text()) separately, after
+	// fetchWithTimeout has already returned. If we disarmed the timer at
+	// that point, a slow body transfer (which is where nearly all of the
+	// time goes on a throttled connection, since GitHub/Dropbox payloads
+	// are the response body) would run completely unguarded. So instead of
+	// clearing the timer here, we hand back the Response with its
+	// body-reading methods wrapped: the same timeout budget, and the same
+	// AbortController, stay live until the body is actually consumed (or
+	// fails), and the timer is only cleared then.
+	fetchWithTimeout: async (url, options = {}, timeoutMs = Utils.NETWORK_TIMEOUT_MS) => {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+		const { signal: callerSignal, ...restOptions } = options;
+		if (callerSignal) {
+			if (callerSignal.aborted) controller.abort();
+			else callerSignal.addEventListener('abort', () => controller.abort(), { once: true });
+		}
+
+		const timeoutError = () => new Error(`Request timed out. Check your connection and try again.`);
+
+		let res;
+		try {
+			res = await fetch(url, { ...restOptions, signal: controller.signal });
+		} catch (err) {
+			clearTimeout(timer);
+			throw err.name === 'AbortError' ? timeoutError() : err;
+		}
+
+		// Wrap the body-consuming methods so the timeout guard spans the
+		// full transfer, not just the initial round trip. Non-body members
+		// (res.ok, res.status, res.headers, ...) pass through untouched.
+		const bodyMethods = ['json', 'text', 'blob', 'arrayBuffer', 'formData'];
+		return new Proxy(res, {
+			get(target, prop, receiver) {
+				if (bodyMethods.includes(prop)) {
+					return async (...args) => {
+						try {
+							return await target[prop](...args);
+						} catch (err) {
+							throw err.name === 'AbortError' ? timeoutError() : err;
+						} finally {
+							clearTimeout(timer);
+						}
+					};
+				}
+				const value = Reflect.get(target, prop, target);
+				return typeof value === 'function' ? value.bind(target) : value;
+			}
+		});
+	},
 
 	// Strips leading and trailing slashes from a path segment.
 	// Centralises the normalization pattern used throughout VFS and the provider services.
@@ -807,7 +876,7 @@ const GitHubService = {
 
 	// Internal API fetcher for clean error handling and boilerplate reduction
 	async _apiFetch(url, token, options = {}) {
-		const res = await fetch(url, {
+		const res = await Utils.fetchWithTimeout(url, {
 			...options,
 			headers: {
 				'Authorization': `token ${token}`,
@@ -1013,7 +1082,7 @@ const DropboxService = {
 	},
 
 	async _refreshAccessToken(keychain) {
-		const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+		const res = await Utils.fetchWithTimeout('https://api.dropboxapi.com/oauth2/token', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			cache: 'no-store',
@@ -1043,7 +1112,7 @@ const DropboxService = {
 		initOptions.headers = headers;
 		initOptions.cache = 'no-store';
 		
-		let res = await fetch(url, initOptions);
+		let res = await Utils.fetchWithTimeout(url, initOptions);
 
 		// Intercept Auth Failures and Auto-Refresh
 		if (res.status === 401 && keychain.refreshToken) {
@@ -1054,7 +1123,7 @@ const DropboxService = {
 			if (url.includes('/download')) delete retryHeaders['Content-Type'];
 			
 			initOptions.headers = retryHeaders;
-			res = await fetch(url, initOptions);
+			res = await Utils.fetchWithTimeout(url, initOptions);
 		}
 		
 		return res;
@@ -1522,11 +1591,12 @@ Unsupported: {
 			);
 		});
 	},
-	// Toggles the editor chrome buttons (pull/push/delete) as a unit.
+	// Toggles the editor chrome buttons (save/pull/push/delete) as a unit.
 	// Both resetEditor and setEditorActive maintain this set — a helper
 	// ensures they stay in sync with no risk of one growing out of step.
 	_setEditorChrome(isOpen) {
 		const display = isOpen ? 'block' : 'none';
+		DOM.saveBtn.style.display = display;
 		DOM.pullBtn.style.display = display;
 		DOM.pushBtn.style.display = display;
 		DOM.deleteBtn.style.display = display;
@@ -2359,6 +2429,53 @@ Unsupported: {
 		}
 	},
 
+	// Exports the current file to the user's local disk via a browser download.
+	// This is intentionally independent of any remote provider — it works even
+	// for a workspace with no keychain configured at all, since it only reads
+	// from the local IndexedDB cache (plus whatever's live in the editor).
+	async saveFile() {
+		const filename = AppState.currentFilename;
+		if (!filename) return;
+
+		try {
+			const note = await DBService.get(filename);
+			if (!note) return UI.showStatus('Nothing to save: file not found locally.', true);
+
+			// Edits are debounced 500ms before being flushed to IndexedDB (see
+			// handleTyping), so note.content can briefly lag behind what's on
+			// screen. Text-based plugins (Text/Markdown) expose their live
+			// textarea; prefer that. Read-only viewers (Image/PDF/Unsupported)
+			// have no edit buffer, so note.content — the Blob itself — is
+			// already authoritative for them.
+			const plugin = AppState.activePlugin;
+			const liveContent = (plugin && plugin.textarea) ? plugin.textarea.value : note.content;
+
+			const blob = liveContent instanceof Blob
+				? liveContent
+				: new Blob([liveContent ?? ''], { type: 'text/plain;charset=utf-8' });
+
+			// Use only the basename for the download — the full VFS path (e.g.
+			// "docs/notes.md") isn't a valid target for a flat Downloads folder.
+			const basename = filename.includes('/') ? filename.substring(filename.lastIndexOf('/') + 1) : filename;
+
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = basename;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+
+			// Revoke on a delay rather than immediately — some browsers kick off
+			// the download asynchronously and a same-tick revoke can race it.
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+			UI.showStatus(`Saved ${basename} to disk.`);
+		} catch (err) {
+			UI.showStatus(`Save failed: ${err.message}`, true);
+		}
+	},
+
 	async refreshTree() {
 		try {
 			UI.showStatus('Refreshing file list remotely...');
@@ -2605,7 +2722,7 @@ Unsupported: {
 
 		try {
 			const redirectUri = window.location.origin + window.location.pathname;
-			const res = await fetch('https://api.dropboxapi.com/oauth2/token', {
+			const res = await Utils.fetchWithTimeout('https://api.dropboxapi.com/oauth2/token', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
