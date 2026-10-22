@@ -79,11 +79,11 @@ const allowedHosts = new Set(
   urlsToCache.map(requestUrl => new URL(requestUrl, location.origin).hostname)
 );
 
-// One cache per build (20261021T170900Z-10d09c5 comes from make), so a new build installs a
+// One cache per build (20261022T023743Z-10d09c5-dirty comes from make), so a new build installs a
 // new worker with fresh copies of the app files. The new worker waits until
 // the page tells it to take over (app/boot shows "New version available").
 const CACHE_PREFIX = 'notes-cache-';
-const CACHE_NAME = CACHE_PREFIX + '20261021T170900Z-10d09c5';
+const CACHE_NAME = CACHE_PREFIX + '20261022T023743Z-10d09c5-dirty';
 
 const isLocal = (requestUrl) => new URL(requestUrl, location.href).origin === location.origin;
 
