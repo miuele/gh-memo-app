@@ -229,6 +229,64 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	display: flex; align-items: center; gap: 10px;
 	cursor: pointer; color: #c98200; font-weight: bold;
 }
+/* Control panels (plugins/panel) */
+.panel { max-width: 640px; }
+.panel-title { margin: 0 0 16px; font-size: 20px; }
+.panel-heading { margin: 22px 0 8px; font-size: 15px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.panel-note { color: #666; font-size: 13px; margin: 6px 0; }
+.panel-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 4px; padding: 10px; white-space: pre-wrap; }
+.panel-row { display: grid; grid-template-columns: minmax(120px, 200px) 1fr; gap: 6px 14px; align-items: start; padding: 8px 0; }
+.panel-label { font-size: 14px; padding-top: 6px; }
+.panel-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.panel-field input[type="text"], .panel-field input[type="number"], .panel-field select, .panel-field textarea {
+	padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; font-family: inherit; box-sizing: border-box; max-width: 100%;
+}
+.panel-field input[type="text"], .panel-field textarea { width: 100%; }
+.panel-field .panel-raw { font-family: monospace; }
+.panel-inline { display: inline-flex; align-items: center; gap: 8px; }
+.panel-unit { color: #666; font-size: 13px; }
+.panel-switch { width: 18px; height: 18px; margin: 6px 0; }
+.panel-msg { color: var(--danger); font-size: 12px; }
+.panel-msg:empty { display: none; }
+.panel-muted { color: #666; font-size: 13px; }
+.panel-pre { margin: 4px 0 0; padding: 8px; background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 4px; font-size: 12px; white-space: pre-wrap; overflow-x: auto; }
+.panel-list { margin: 0; padding-left: 18px; }
+.panel-report .panel-field { font-size: 14px; padding-top: 2px; }
+.panel-strip { display: flex; flex-direction: column; gap: 6px; margin: -6px 0 10px; font-size: 13px; }
+.panel-strip:empty { display: none; }
+.panel-strip-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.panel-dot { width: 10px; height: 10px; border-radius: 50%; background: #bbb; flex-shrink: 0; }
+.panel-dot-live { background: #2da44e; }
+.panel-dot-late { background: #d4a72c; }
+.panel-dot-offline { background: var(--danger); }
+.panel-badge { font-size: 12px; color: #666; }
+.panel-badge:empty { display: none; }
+.panel-badge-ok { color: #2da44e; }
+.panel-badge-pending { color: #9a6700; }
+.panel-badge-error { color: var(--danger); }
+.panel-badge-differs { color: #9a6700; font-weight: bold; }
+.panel-command { grid-template-columns: 1fr; }
+.panel-command-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.panel-arg { display: flex; flex-direction: column; gap: 4px; font-size: 13px; flex: 1 1 220px; min-width: 0; }
+.panel-arg input[type="text"], .panel-arg input[type="number"], .panel-arg select {
+	padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; width: 100%; box-sizing: border-box;
+}
+.panel-run { background: var(--accent); color: white; border-color: var(--accent); }
+.panel-run:hover { background: #005bb5; }
+.panel-history { display: flex; flex-direction: column; gap: 4px; }
+.panel-history:empty { display: none; }
+.panel-history-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13px; }
+.panel-history-row .panel-pre { flex-basis: 100%; }
+.panel-args { font-family: monospace; font-size: 12px; overflow-wrap: anywhere; }
+.panel-chip { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #eee; color: #444; }
+.panel-chip-done { background: #dafbe1; color: #116329; }
+.panel-chip-failed, .panel-chip-rejected { background: #ffebe9; color: #a40e26; }
+.panel-chip-running { background: #ddf4ff; color: #0550ae; }
+.panel-chip-no-result { background: #fff8c5; color: #7d4e00; }
+@media (max-width: 768px) {
+	.panel-row { grid-template-columns: 1fr; }
+	.panel-label { padding-top: 0; font-weight: bold; font-size: 13px; }
+}
 
 	/* ends here */
 	
@@ -455,10 +513,10 @@ define('resources', [], () => ({
 // (ISO 8601), commit the git short hash ('-dirty' with uncommitted changes,
 // '' outside a checkout), and id, made of both, names the service worker's cache.
 define('buildInfo', [], () => {
-	const time = '2026-10-22T02:37:43Z';
-	const commit = '10d09c5-dirty';
+	const time = '2026-10-23T05:02:13Z';
+	const commit = 'bd61649-dirty';
 	return {
-		id: '20261022T023743Z-10d09c5-dirty',
+		id: '20261023T050213Z-bd61649-dirty',
 		time,
 		commit,
 		label: `Built ${time.slice(0, 10)} ${time.slice(11, 16)} UTC${commit ? ` · ${commit}` : ''}`,
@@ -493,7 +551,7 @@ define('actions/files',
 			note.is_dirty = true;
 			await DBService.put(note, dbName);
 
-			Tabs.post({ type: Tabs.LOCAL_EDIT, filename });
+			Tabs.post({ type: Tabs.LOCAL_EDIT, dbName, filename });
 			if (dbName === DBService.dbName) FileList.render(DOM.searchBar.value, false);
 		} catch (err) {
 			Status.show(`Couldn't save ${filename}: ${err.message}`, true);
@@ -746,6 +804,148 @@ define('actions/files',
 	return Files;
 });
 //# sourceURL=src/actions/files.js
+</script>
+<script>
+// The plugin host: how a plugin instance reads files besides its own.
+//
+// It reads stored files of the open file's repository (forest tree: same
+// repo and branch), as of the workspace that was active at mount time:
+// never for writing, never from the network. Paths are relative to the
+// open file (or start at the repo root with '/'). They may cross mount
+// points, but not go above the repo root, and .symlink files are never
+// followed. Every file read is watched, so the plugin hears when it changes.
+//
+//   const host = Host.create(filename);
+//   host.api       // { read(path), onChange(cb) }, handed to the plugin's mount
+//   host.reads()   // the paths read so far, for the app
+//   host.dispose() // on unmount
+define('actions/host', ['model/config', 'model/forest', 'lib/path', 'storage/notesDb'], (Config, Forest, Path, DBService) => {
+	const COALESCE_MS = 250;
+
+	// Hosts of mounted plugins, told about writes made in other tabs.
+	const live = new Set();
+
+	// The form a path is resolved in: trimmed and percent-decoded, so
+	// 'my%20pic.png' and 'my pic.png' are the same file.
+	const normalize = (path) => {
+		const s = String(path).trim();
+		try { return decodeURIComponent(s); } catch { return s; }
+	};
+	// URLs, protocol-relative links and anchors are not paths.
+	const isExternal = (path) => !path || /^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(path);
+
+	const Host = {
+		COALESCE_MS,
+
+		create(filename) {
+			const wsId = Config.activeWorkspaceId;
+			const ws = Config.workspaces[wsId];
+			const sig = ws ? Forest.computeTreeSig(ws, Config.keychains[ws.keychainId]) : null;
+			const selfPath = Forest.getAbsolutePath(wsId, filename);
+
+			let disposed = false;
+			const listeners = new Set();
+			const pending = new Set();
+			let timer = null;
+			// Paths read so far: path -> where it was looked up ({ dbName, filename } or null).
+			const watched = new Map();
+
+			// A path -> { dbName, filename } of the deepest workspace of the tree
+			// that holds it, or null when none does. Throws for a path above the
+			// repo root or through a .symlink.
+			const resolve = (path) => {
+				if (isExternal(path)) throw new Error(`${path} is not a path in the repository`);
+				const absolutePath = Path.resolveWithin(selfPath, path);
+				if (absolutePath === null) throw new Error(`${path} is outside the repository`);
+				if (absolutePath.split('/').some(part => /\.symlink$/i.test(part))) throw new Error(`${path}: symlinks are not followed`);
+				if (!sig) return null;
+				const id = Forest.resolveBestFit(absolutePath, sig);
+				if (!id) return null;
+				const relative = Forest.getRelativePath(id, absolutePath);
+				return relative ? { dbName: Config.workspaces[id].dbName, filename: relative } : null;
+			};
+
+			const notify = (paths) => {
+				if (disposed || !paths.length) return;
+				paths.forEach(p => pending.add(p));
+				if (timer) return;
+				timer = setTimeout(() => {
+					timer = null;
+					if (disposed) return;
+					const changed = [...pending];
+					pending.clear();
+					for (const cb of [...listeners]) {
+						try { cb({ paths: changed }); } catch (err) { console.error(err); }
+					}
+				}, COALESCE_MS);
+			};
+
+			// A stored file changed (this tab or another): was it read here?
+			// Mounts are looked up again, since one may have been added since.
+			const written = ({ dbName, filename: changed }) => {
+				const hit = [];
+				for (const path of watched.keys()) {
+					let target;
+					try { target = resolve(path); } catch { continue; }
+					watched.set(path, target);
+					if (target && target.dbName === dbName && (changed === null || target.filename === changed)) hit.push(path);
+				}
+				notify(hit);
+			};
+
+			const api = Object.freeze({
+				// The stored copy: { content, isDirty } (text as a string, binary as
+				// a Blob), or null if it isn't stored here.
+				async read(path) {
+					if (disposed) return null;
+					const key = normalize(path);
+					const target = resolve(key);
+					watched.set(key, target);
+					if (!target) return null;
+					const note = await DBService.get(target.filename, target.dbName);
+					if (disposed || !note || note.is_folder) return null;
+					return { content: note.content, isDirty: !!note.is_dirty };
+				},
+
+				// cb({ paths }) when files read through this host change in the
+				// local store. Returns an unsubscribe function.
+				onChange(cb) {
+					if (disposed) return () => {};
+					listeners.add(cb);
+					return () => listeners.delete(cb);
+				},
+			});
+
+			const unsubscribe = DBService.onWrite(written);
+
+			const host = {
+				api,
+				written,
+				reads: () => [...watched.keys()],
+
+				dispose() {
+					if (disposed) return;
+					disposed = true;
+					clearTimeout(timer);
+					listeners.clear();
+					pending.clear();
+					unsubscribe();
+					live.delete(host);
+				},
+			};
+			live.add(host);
+			return host;
+		},
+
+		// A write made in another tab (app/crossTab forwards them).
+		changed(dbName, filename) {
+			for (const host of [...live]) host.written({ dbName, filename });
+		},
+	};
+
+	return Host;
+});
+//# sourceURL=src/actions/host.js
 </script>
 <script>
 define('actions/keychains', ['model/config', 'ui/settings'], (Config, SettingsView) => ({
@@ -1345,11 +1545,11 @@ define('actions/workspaces',
 define('app/boot',
 	['model/config', 'remote/dropboxAuth',
 	 'ui/refs', 'ui/editor', 'ui/fileList', 'ui/pins', 'ui/indicator', 'ui/settings', 'ui/sidebar', 'ui/status',
-	 'actions/files', 'actions/sync', 'actions/pins', 'actions/workspaces', 'actions/keychains', 'actions/settings',
+	 'actions/files', 'actions/sync', 'actions/pins', 'actions/workspaces', 'actions/keychains', 'actions/settings', 'actions/host',
 	 'app/router', 'app/shortcuts', 'app/paste', 'app/crossTab', 'app/serviceWorker'],
 	(Config, DropboxAuth,
 	 DOM, Editor, FileList, PinsView, Indicator, SettingsView, Sidebar, Status,
-	 Files, Sync, Pins, Workspaces, Keychains, Settings,
+	 Files, Sync, Pins, Workspaces, Keychains, Settings, Host,
 	 Router, Shortcuts, Paste, CrossTab, ServiceWorker) => {
 
 	// Everything a data-action="..." attribute in index.html can trigger.
@@ -1371,6 +1571,7 @@ define('app/boot',
 		Editor.bind({
 			onEdit: (content) => Files.handleTyping(content),
 			onLeave: () => Files.flushPendingEdit(),
+			makeHost: (filename) => Host.create(filename),
 		});
 		FileList.bind({
 			open: (filename) => Files.open(filename),
@@ -1486,14 +1687,23 @@ define('app/boot',
 //# sourceURL=src/app/boot.js
 </script>
 <script>
-// Reacts to messages from other tabs of the app.
-define('app/crossTab', ['lib/tabChannel', 'ui/editor', 'ui/fileList', 'ui/status'], (Tabs, Editor, FileList, Status) => ({
+// Reacts to messages from other tabs of the app, and tells them about this
+// tab's writes to the local cache.
+define('app/crossTab',
+	['model/config', 'lib/tabChannel', 'storage/notesDb', 'ui/editor', 'ui/fileList', 'ui/status', 'actions/host'],
+	(Config, Tabs, DBService, Editor, FileList, Status, Host) => ({
 	install() {
+		// Plugin views in other tabs may show this file (see actions/host).
+		DBService.onWrite(({ dbName, filename }) => Tabs.post({ type: Tabs.NOTE_WRITTEN, dbName, filename }));
+
 		Tabs.onMessage((message) => {
 			if (message.type === Tabs.SIDEBAR_REFRESH) FileList.render();
+			if (message.type === Tabs.NOTE_WRITTEN) Host.changed(message.dbName, message.filename);
 
 			// Another tab edited the file open here: lock this editor to prevent overwrites.
-			if (message.type === Tabs.LOCAL_EDIT && Editor.currentFilename() === message.filename) {
+			// The same filename in another workspace is a different file.
+			const ws = Config.activeWorkspace;
+			if (message.type === Tabs.LOCAL_EDIT && ws && ws.dbName === message.dbName && Editor.currentFilename() === message.filename) {
 				if (Editor.freeze()) Status.show(`⚠️ Edited in another tab.`, true);
 			}
 		});
@@ -1828,6 +2038,79 @@ define('lib/fileTypes', [], () => {
 //# sourceURL=src/lib/fileTypes.js
 </script>
 <script>
+// The files a Markdown note refers to, found without the Markdown engine
+// (which loads lazily), for plugins/markdown's references().
+//
+// images(content) lists image sources as written: ![alt](src),
+// reference-style images (![alt][label], ![label][], ![label] with a
+// [label]: src definition) and HTML <img src>. Fenced code blocks and code
+// spans are skipped. When in doubt it lists a source rather than missing
+// one: an extra entry only allows a read, while a missing one shows the
+// image as missing. tests/e2e/smoke.cjs checks it against marked.
+define('lib/mdRefs', [], () => {
+	const BRACKETED = String.raw`(?:\\.|[^\\\[\]]|\[(?:\\.|[^\\\[\]])*\])*`;
+	const TITLE = String.raw`(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))`;
+	const DEST = String.raw`(?:<((?:\\.|[^\\<>\n])*)>|((?:\\.|[^\\\s()]|\((?:\\.|[^\\\s()])*\))*))`;
+
+	const INLINE_IMAGE = new RegExp(String.raw`!\[${BRACKETED}\]\(\s*${DEST}(?:\s+${TITLE})?\s*\)`, 'g');
+	const REF_IMAGE = new RegExp(String.raw`!\[(${BRACKETED})\](?:\[((?:\\.|[^\\\[\]])*)\])?`, 'g');
+	const DEFINITION = new RegExp(String.raw`^ {0,3}\[((?:\\.|[^\\\[\]])+)\]:[ \t]*\n?[ \t]*(?:<((?:\\.|[^\\<>\n])*)>|(\S+))`, 'gm');
+	const HTML_IMG = /<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+	const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+	// A code span: matching backtick runs, not across a blank line.
+	const CODE_SPAN = /(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])*?[^`])\1(?!`)/g;
+
+	const unescape = (s) => s.replace(/\\([!-/:-@[-`{-~])/g, '$1');
+	const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" };
+	const decodeEntities = (s) => s.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, e) => ENTITIES[e]);
+	const label = (s) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+	const blank = (s) => s.replace(/[^\n]/g, ' ');
+
+	// The text outside fenced code blocks (an unclosed fence runs to the end).
+	const withoutFences = (content) => {
+		const out = [];
+		let fence = null;
+		for (const line of content.split('\n')) {
+			const m = line.match(FENCE);
+			if (fence) {
+				if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) fence = null;
+				out.push('');
+			} else if (m && !(m[1][0] === '`' && line.slice(m[0].length).includes('`'))) {
+				fence = m[1];
+				out.push('');
+			} else out.push(line);
+		}
+		return out.join('\n');
+	};
+
+	const images = (content) => {
+		let text = withoutFences(String(content || '')).replace(CODE_SPAN, blank);
+		const found = [];
+
+		const defs = new Map();
+		for (const m of text.matchAll(DEFINITION)) {
+			const key = label(m[1]);
+			if (!defs.has(key)) defs.set(key, unescape(m[2] ?? m[3]));
+		}
+
+		text = text.replace(INLINE_IMAGE, (whole, angled, bare) => {
+			found.push(unescape(angled ?? bare ?? ''));
+			return blank(whole);
+		});
+		for (const m of text.matchAll(REF_IMAGE)) {
+			const src = defs.get(label(m[2] ? m[2] : m[1]));
+			if (src !== undefined) found.push(src);
+		}
+		for (const m of text.matchAll(HTML_IMG)) found.push(decodeEntities(m[1] ?? m[2] ?? m[3]));
+
+		return [...new Set(found.filter(Boolean))];
+	};
+
+	return { images };
+});
+//# sourceURL=src/lib/mdRefs.js
+</script>
+<script>
 define('lib/net', [], () => {
 	// Default ceiling for any single remote request (GitHub/Dropbox APIs).
 	// Chosen to comfortably cover slow mobile connections without leaving
@@ -1922,6 +2205,20 @@ define('lib/path', [], () => {
 		return stack.join('/');
 	};
 
+	// Like resolvePath, but for paths that must stay inside one tree: a
+	// leading '/' starts at the root, and a '..' above the root gives null
+	// instead of being dropped.
+	const resolveWithin = (basePath, relativePath) => {
+		const stack = relativePath.startsWith('/') ? [] : basePath.split('/').slice(0, -1);
+		for (const part of relativePath.split('/')) {
+			if (part === '' || part === '.') continue;
+			if (part !== '..') stack.push(part);
+			else if (!stack.length) return null;
+			else stack.pop();
+		}
+		return stack.join('/');
+	};
+
 	const parsePath = (path) => {
 		const lastSlash = path.lastIndexOf('/');
 		const dir = lastSlash === -1 ? '' : path.substring(0, lastSlash + 1);
@@ -1931,7 +2228,7 @@ define('lib/path', [], () => {
 		return { dir, filename, basename };
 	};
 
-	return { cleanPath, resolvePath, parsePath };
+	return { cleanPath, resolvePath, resolveWithin, parsePath };
 });
 //# sourceURL=src/lib/path.js
 </script>
@@ -1967,6 +2264,7 @@ define('lib/tabChannel', [], () => {
 		// Message types
 		SIDEBAR_REFRESH: 'SIDEBAR_REFRESH',
 		LOCAL_EDIT: 'LOCAL_EDIT',
+		NOTE_WRITTEN: 'NOTE_WRITTEN',
 
 		post(message) { get().postMessage(message); },
 		onMessage(handler) { get().onmessage = (event) => handler(event.data); },
@@ -2076,8 +2374,8 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			return sig && Config.treePins[sig] ? Config.treePins[sig] : [];
 		},
 
-		_activeTreeIds() {
-			const sig = this.activeTreeSignature();
+		// The workspace ids of one tree, deepest mount first (default: the active tree).
+		_treeIds(sig = this.activeTreeSignature()) {
 			if (!sig) return null;
 			return this.workspaceTrees()[sig] || [];
 		},
@@ -2101,9 +2399,10 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 			return absolutePath;
 		},
 
-		// 3. The Router: Finds the deepest workspace mounted for an absolute path
-		resolveBestFit(absolutePath) {
-			const treeWsIds = this._activeTreeIds();
+		// 3. The Router: Finds the deepest workspace mounted for an absolute path,
+		// in the active tree or the one named by `sig`
+		resolveBestFit(absolutePath, sig) {
+			const treeWsIds = this._treeIds(sig);
 			if (!treeWsIds) return null;
 
 			return treeWsIds.find(id => {
@@ -2114,7 +2413,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 
 		// 4. The Mapper: Finds sub-workspaces that should appear as folders locally
 		getVirtualMounts() {
-			const treeWsIds = this._activeTreeIds();
+			const treeWsIds = this._treeIds();
 			if (!treeWsIds) return [];
 
 			const currentRoot = cleanPath(Config.activeWorkspace.rootDir);
@@ -2135,7 +2434,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 
 		// 5. Exact Mount: Finds if a path is the explicit root of a sub-workspace
 		getExactMount(absolutePath) {
-			const treeWsIds = this._activeTreeIds();
+			const treeWsIds = this._treeIds();
 			if (!treeWsIds) return null;
 
 			return treeWsIds.find(id => {
@@ -2228,9 +2527,12 @@ define('plugins/image', ['lib/dom', 'lib/fileTypes'], (Dom, FileTypes) => {
 //# sourceURL=src/plugins/image.js
 </script>
 <script>
+// Markdown notes: a textarea to edit, and a rendered view with KaTeX math and
+// highlighted code. Local images are read through the plugin host, which
+// also tells the view when one of them is stored or changed.
 define('plugins/markdown',
-	['lib/dom', 'lib/path', 'lib/fileTypes', 'plugins/textEditor', 'storage/notesDb', 'ui/status', 'resources'],
-	(Dom, Path, FileTypes, TextEditor, DBService, Status, R) => {
+	['lib/dom', 'lib/fileTypes', 'plugins/textEditor', 'ui/status', 'resources'],
+	(Dom, FileTypes, TextEditor, Status, R) => {
 
 	let depsLoaded = false;
 	const loadDeps = async () => {
@@ -2253,7 +2555,7 @@ define('plugins/markdown',
 			{
 				renderer: {
 					image(token) {
-						// Prevent eager fetching by holding the URL in data-src
+						// Hold the URL in data-src, so nothing loads before renderMarkdown decides
 						return `<img data-src="${token.href}" alt="${token.text || ''}" title="${token.title || ''}" />`;
 					}
 				}
@@ -2270,26 +2572,51 @@ define('plugins/markdown',
 			textarea: null,
 			viewLayer: null,
 			filename: null,
+			host: null,
+			isViewMode: false,
+			unsubscribe: null,
+			// Only the latest of overlapping renders updates the view.
+			renders: 0,
 
-
-			mount: async function(filename, content, viewLayer, editLayer, saveCallback, { isViewMode } = {}) {
+			mount: async function(filename, content, viewLayer, editLayer, saveCallback, { isViewMode, host } = {}) {
 				this.filename = filename;
 				this.viewLayer = viewLayer;
+				this.host = host || null;
+				this.isViewMode = !!isViewMode;
 
 				// Ask the factory for a standard editor, but the plugin still OWNS it
 				this.textarea = TextEditor.create(content, saveCallback);
 				editLayer.appendChild(this.textarea);
 
+				// An image pulled, pasted or edited elsewhere shows without reopening the note.
+				if (this.host) this.unsubscribe = this.host.onChange(() => this.isViewMode && this.renderMarkdown());
+
 				if (isViewMode) await this.renderMarkdown();
 			},
 
 			onModeSwitch: async function(isViewMode) {
+				this.isViewMode = isViewMode;
 				if (isViewMode) await this.renderMarkdown();
 				else this.textarea.focus();
 			},
 
+			// The stored image for a local src, through the host. Null when it isn't
+			// stored, or the path is refused (e.g. above the repo root).
+			readImage: async function(src) {
+				if (!this.host) return null;
+				try {
+					const file = await this.host.read(src);
+					return file && file.content instanceof Blob ? file.content : null;
+				} catch (err) {
+					console.warn(`Image ${src}:`, err.message);
+					return null;
+				}
+			},
+
 			renderMarkdown: async function() {
+				const render = ++this.renders;
 				await loadDeps();
+				if (!this.textarea || render !== this.renders) return;
 
 				let processedText = this.textarea.value
 				        // Ensure block math has a preceding empty line (prevents it being swallowed by paragraphs)
@@ -2306,6 +2633,11 @@ define('plugins/markdown',
 				    if (node.tagName === 'A') {
 				        node.setAttribute('target', '_blank');
 				        node.setAttribute('rel', 'noopener noreferrer');
+				    }
+				    // An HTML <img> with a local src is looked up like a Markdown image.
+				    if (node.tagName === 'IMG' && node.hasAttribute('src') && !/^(https?:|data:)/i.test(node.getAttribute('src'))) {
+				        node.setAttribute('data-src', node.getAttribute('src'));
+				        node.removeAttribute('src');
 				    }
 				});
 
@@ -2330,33 +2662,33 @@ define('plugins/markdown',
 
 				safeFragment.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
 
+				// Remove the hook after use so it doesn't bleed into other plugins
+				DOMPurify.removeHook('afterSanitizeAttributes');
+
 				const imgPromises = Array.from(safeFragment.querySelectorAll('img')).map(async (img) => {
 					// Read from our safe data attribute
 					const src = img.getAttribute('data-src');
 					if (!src) return;
 
 					if (!src.match(/^(http|https|data:)/i)) {
-						// Local Image Lookup
-						const file = await DBService.get(Path.resolvePath(this.filename, src));
-						if (file && file.content instanceof Blob) {
-							const objectUrl = URL.createObjectURL(file.content);
+						// Local image, from the stored copy
+						const blob = await this.readImage(src);
+						if (blob) {
+							const objectUrl = URL.createObjectURL(blob);
 							img.src = objectUrl; // Assigning the real src safely
 							img.onload = () => URL.revokeObjectURL(objectUrl);
 						} else {
 							img.alt = `[Image missing locally: ${src}]`;
 						}
 					} else {
-						// External Web Image: Safe to fetch now
+						// Remote image: the browser loads it (see backlog, Deferred)
 						img.src = src;
 					}
 				});
 
 				await Promise.all(imgPromises);
 
-				this.viewLayer.replaceChildren(safeFragment);
-
-				// Remove the hook after use so it doesn't bleed into other plugins
-				DOMPurify.removeHook('afterSanitizeAttributes');
+				if (this.viewLayer && render === this.renders) this.viewLayer.replaceChildren(safeFragment);
 			},
 
 			freeze: function() {
@@ -2366,6 +2698,9 @@ define('plugins/markdown',
 			},
 
 			unmount: function() {
+				if (this.unsubscribe) this.unsubscribe();
+				this.unsubscribe = null;
+				this.host = null;
 				this.textarea = null;
 				this.viewLayer = null;
 				this.filename = null;
@@ -2374,6 +2709,732 @@ define('plugins/markdown',
 	};
 });
 //# sourceURL=src/plugins/markdown.js
+</script>
+<script>
+// Control panels: a visual editor and viewer for JSON files shared with
+// other programs. Syncing is the app's usual Pull and Push.
+//
+//  * *.panel.json lists controls and holds their values. View mode shows the
+//    controls as a form, and command buttons append to the file's queue;
+//    edit mode is the raw JSON. Every change goes through the normal
+//    autosave. It also reads the status file of the same name
+//    (x.panel.json -> x.status.json) through the plugin host, and the form
+//    shows what that file reports beside each control.
+//  * *.status.json, written by the program, shows as a read-only dashboard.
+//
+// The formats are in src/plugins/panel/README.md.
+define('plugins/panel',
+	['lib/dom', 'plugins/textEditor', 'plugins/panel/model', 'plugins/panel/controls', 'plugins/panel/report'],
+	(Dom, TextEditor, Model, Controls, Report) => {
+	const { h } = Dom;
+
+	const PANEL_SUFFIX = /\.panel\.json$/i;
+	const isStatusFile = (fn) => /\.status\.json$/i.test(fn || '');
+	// x.panel.json -> x.status.json, relative to the panel (same folder).
+	const statusRefOf = (fn) => (PANEL_SUFFIX.test(fn || '') ? fn.slice(fn.lastIndexOf('/') + 1).replace(PANEL_SUFFIX, '.status.json') : null);
+
+	// How often the "updated … ago" texts are redrawn.
+	const CLOCK_MS = 15000;
+
+	const LIVENESS = { live: 'Online', late: 'Late', offline: 'Offline' };
+	const COMMAND_LABEL = { waiting: 'waiting', 'no-result': 'no result' };
+	const VALUE_BADGE = {
+		ok: () => '✓ Applied',
+		pending: () => '⏳ Not picked up yet',
+		error: (vs) => `⚠️ ${vs.message}`,
+		differs: (vs, spec) => `Reported: ${Model.describe(spec, vs.reported)}`,
+		unhandled: () => 'Not handled by the program',
+	};
+	const HISTORY_LENGTH = 3;
+	const MAX_OUTPUT = 2000;
+
+	const seconds = (s) => (s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`);
+	const section = (title, rows) => (rows.length ? [h('h3', { class: 'panel-heading' }, title), ...rows] : []);
+	const output = (text) => h('pre', { class: 'panel-pre' }, text.length > MAX_OUTPUT ? `${text.slice(0, MAX_OUTPUT)}…` : text);
+
+	return {
+		canHandle: (fn) => PANEL_SUFFIX.test(fn || '') || isStatusFile(fn),
+		statusRefOf,
+		create: () => ({
+			name: 'PanelPlugin',
+			supportedModes: ['edit', 'view'],
+			// Opens as a form whatever mode the previous file was in.
+			preferredMode: 'view',
+			textarea: null,
+			viewLayer: null,
+			filename: null,
+			onEdit: null,
+			doc: null,
+			fields: [],
+			frozen: false,
+			host: null,
+			unsubscribe: null,
+			clock: null,
+			// A panel's status file: { ref, doc, problem }, from the stored copy.
+			status: null,
+			// Elements updated in place by updateLive(), so a status change never
+			// rebuilds the inputs the user may be typing in.
+			live: null,
+
+			mount: async function(filename, content, viewLayer, editLayer, onEdit, { isViewMode, host } = {}) {
+				this.filename = filename;
+				this.viewLayer = viewLayer;
+				this.onEdit = onEdit;
+				this.host = host || null;
+				this.textarea = TextEditor.create(content, onEdit);
+				editLayer.appendChild(this.textarea);
+
+				const ref = statusRefOf(filename);
+				if (ref && this.host) {
+					this.status = { ref, doc: null, problem: null };
+					this.unsubscribe = this.host.onChange(() => this.loadStatus());
+					this.clock = setInterval(() => this.updateLive(), CLOCK_MS);
+					await this.loadStatus();
+				}
+				if (isViewMode) this.render();
+			},
+
+			onModeSwitch: async function(isViewMode) {
+				if (isViewMode) this.render();
+				else this.textarea.focus();
+			},
+
+			// Rebuilds the view from the text, which is the source of truth.
+			render: function() {
+				const { doc, error } = Model.parse(this.textarea.value);
+				this.doc = doc || null;
+				this.fields = [];
+				this.live = null;
+				if (error) {
+					this.viewLayer.replaceChildren(h('div', { class: 'panel' },
+						h('div', { class: 'panel-error' }, error),
+						h('p', { class: 'panel-note' }, 'Switch to ✏️ to fix the file.')));
+					return;
+				}
+				if (isStatusFile(this.filename)) return this.renderStatus();
+
+				this.live = { strip: h('div', { class: 'panel-strip' }), badges: [], histories: [], report: h('div') };
+				const controls = Model.controlsOf(doc);
+				const body = controls.length
+					? controls.map(spec => this.renderControl(spec))
+					: [h('p', { class: 'panel-note' }, 'This panel has no controls yet. Switch to ✏️ and add a "controls" list.')];
+
+				this.viewLayer.replaceChildren(h('div', { class: 'panel' },
+					h('h2', { class: 'panel-title' }, String(doc.title ?? this.filename)),
+					this.live.strip,
+					...body,
+					this.live.report));
+				this.updateLive();
+				if (this.frozen) this.fields.forEach(f => f.setDisabled(true));
+			},
+
+			/* =================================================================
+			   A PANEL FILE: the form
+			================================================================= */
+
+			renderControl: function(spec) {
+				const type = Controls.get(spec.type);
+				if (type.layout) return type.render(spec).el;
+				if (typeof spec.id !== 'string' || !spec.id) return h('div', { class: 'panel-msg' }, `A "${spec.type}" control has no "id".`);
+
+				if (type.command) {
+					const field = type.render(spec, undefined, { run: (args) => this.runCommand(spec, args) });
+					this.fields.push(field);
+					const history = h('div', { class: 'panel-history' });
+					this.live.histories.push({ spec, el: history });
+					return h('div', { class: 'panel-row panel-command' }, field.el, history);
+				}
+
+				const msg = h('div', { class: 'panel-msg' });
+				const setMessage = (text) => { msg.textContent = text || ''; };
+				const commit = (value) => {
+					const error = Model.validate(spec, value);
+					setMessage(error);
+					if (!error) this.applyDoc(Model.bumpRev(Model.withValue(this.doc, spec.id, value)));
+				};
+
+				const field = type.render(spec, Model.valueOf(this.doc, spec), { commit, fail: setMessage });
+				this.fields.push(field);
+				const id = `panel-${spec.id}`;
+				if (field.input) field.input.id = id;
+				const badge = h('div', { class: 'panel-badge' });
+				this.live.badges.push({ spec, el: badge });
+
+				return h('div', { class: 'panel-row' },
+					h('label', { class: 'panel-label', for: id }, String(spec.label ?? spec.id)),
+					h('div', { class: 'panel-field' }, field.el, badge, msg));
+			},
+
+			// Writes `doc` into the editor buffer and the autosave.
+			applyDoc: function(doc) {
+				this.doc = doc;
+				const text = Model.serialize(doc, Model.detectIndent(this.textarea.value));
+				this.textarea.value = text;
+				this.onEdit(text);
+				this.updateLive();
+			},
+
+			runCommand: function(spec, args) {
+				const command = typeof spec.command === 'string' ? spec.command : spec.id;
+				if (spec.confirm && !confirm(typeof spec.confirm === 'string' ? spec.confirm : `${spec.label ?? command}?`)) return;
+				const now = new Date();
+				this.applyDoc(Model.addCommand(this.doc, command, args, now, Model.newCommandId(now)));
+			},
+
+			/* =================================================================
+			   A PANEL FILE: what its status file reports, beside the controls
+			================================================================= */
+
+			// Reads the stored status file again (a pull or another tab stored a newer one).
+			loadStatus: async function() {
+				const status = this.status;
+				if (!status) return;
+				let file = null;
+				let problem = null;
+				try {
+					file = await this.host.read(status.ref);
+				} catch (err) {
+					problem = err.message;
+				}
+				if (this.status !== status) return;
+				const { doc, error } = file ? Model.parse(typeof file.content === 'string' ? file.content : '') : {};
+				status.doc = doc || null;
+				status.problem = problem || (error ? `${status.ref}: ${error}` : null);
+				this.updateLive();
+			},
+
+			updateLive: function() {
+				if (!this.live || !this.doc) return;
+				const now = new Date();
+				const st = this.status && this.status.doc;
+				this.live.strip.replaceChildren(...this.statusLine(now));
+
+				for (const { spec, el } of this.live.badges) {
+					const vs = Model.valueState(this.doc, st, spec);
+					el.className = `panel-badge panel-badge-${vs.state}`;
+					el.textContent = VALUE_BADGE[vs.state] ? VALUE_BADGE[vs.state](vs, spec) : '';
+				}
+
+				// Under each command button: its latest queue entries, with their results.
+				for (const { spec, el } of this.live.histories) {
+					const command = typeof spec.command === 'string' ? spec.command : spec.id;
+					const notes = st && !Model.commandHandled(st, command)
+						? [h('div', { class: 'panel-badge panel-badge-unhandled' }, 'Not handled by the program')] : [];
+					el.replaceChildren(...notes, ...Model.historyOf(this.doc, command).slice(0, HISTORY_LENGTH).map(e => this.historyRow(e, st, now)));
+				}
+
+				const report = st && st.report;
+				this.live.report.replaceChildren(...(Model.isObject(report) && Object.keys(report).length
+					? section('Report', [Report.section(report, now)]) : []));
+			},
+
+			// "Online · updated 40 s ago · panel rev 4 · home.status.json", as of the stored copy.
+			statusLine: function(now) {
+				const status = this.status;
+				if (!status) return [];
+				if (status.problem) return [h('div', { class: 'panel-strip-line' }, h('span', { class: 'panel-msg' }, `⚠️ ${status.problem}`))];
+				if (!status.doc) {
+					return [h('div', { class: 'panel-strip-line' }, h('span', { class: 'panel-dot' }),
+						h('span', { class: 'panel-muted' }, `No ${status.ref} on this device yet. Open and pull it once the program has written one.`))];
+				}
+				const line = this.livenessLine(status.doc, now);
+				line.appendChild(h('span', { class: 'panel-muted' }, `· ${status.ref}`));
+				return [line];
+			},
+
+			historyRow: function(entry, st, now) {
+				const { state, result } = st ? Model.commandState(entry, st) : { state: 'queued' };
+				const args = Model.isObject(entry.args) ? Object.values(entry.args).map(v => (typeof v === 'string' ? v : JSON.stringify(v))).join(', ') : '';
+				const out = result && result.output != null && result.output !== '' ? String(result.output) : '';
+				return h('div', { class: 'panel-history-row' },
+					h('span', { class: `panel-chip panel-chip-${state}` }, COMMAND_LABEL[state] || state),
+					h('span', { class: 'panel-muted' }, Report.when(entry.at, now)),
+					...(args ? [h('span', { class: 'panel-args' }, args)] : []),
+					...(out ? [output(out)] : []));
+			},
+
+			/* =================================================================
+			   A STATUS FILE: read-only dashboard
+			================================================================= */
+
+			renderStatus: function() {
+				const now = new Date();
+				const st = this.doc;
+				const values = Model.isObject(st.values) ? st.values : {};
+				const errors = Model.isObject(st.errors) ? st.errors : {};
+				const results = Model.isObject(st.results) ? Object.entries(st.results).filter(([, r]) => Model.isObject(r)) : [];
+				results.sort(([, a], [, b]) => String(b.at).localeCompare(String(a.at)));
+
+				this.viewLayer.replaceChildren(h('div', { class: 'panel' },
+					h('h2', { class: 'panel-title' }, String(st.title ?? this.filename)),
+					h('div', { class: 'panel-strip' }, this.livenessLine(st, now)),
+					...section('Values', [...new Set([...Object.keys(values), ...Object.keys(errors)])].map(k => h('div', { class: 'panel-row' },
+						h('div', { class: 'panel-label' }, k),
+						h('div', { class: 'panel-field' },
+							Report.render(k in values ? values[k] : '(none)', now),
+							...(errors[k] != null ? [h('div', { class: 'panel-badge panel-badge-error' }, `⚠️ ${errors[k]}`)] : []))))),
+					...section('Commands', results.slice(0, 20).map(([id, r]) => h('div', { class: 'panel-history-row' },
+						h('span', { class: `panel-chip panel-chip-${r.state}` }, String(r.state ?? '?')),
+						h('span', { class: 'panel-muted' }, Report.when(r.at, now)),
+						h('span', { class: 'panel-args' }, id),
+						...(r.output ? [output(String(r.output))] : [])))),
+					...(Model.isObject(st.report) ? section('Report', [Report.section(st.report, now)]) : [])));
+			},
+
+			// "Online · updated 40 s ago", from the file's own time and heartbeat,
+			// as of the copy stored here (pull for a newer one).
+			livenessLine: function(st, now) {
+				const { state, age } = Model.liveness(st, now);
+				let text;
+				if (state === 'none') text = 'No "updated" time in this file';
+				else if (state === 'unknown') text = `Updated ${Report.ago(age)}`;
+				else {
+					text = `${LIVENESS[state]} · updated ${Report.ago(age)}`;
+					if (state !== 'live') text += ` (expected every ${seconds(st.heartbeat_seconds)})`;
+				}
+				if (typeof st.rev === 'number') text += ` · panel rev ${st.rev}`;
+				return h('div', { class: 'panel-strip-line' }, h('span', { class: `panel-dot panel-dot-${state}` }), h('span', {}, text));
+			},
+
+			freeze: function() {
+				this.frozen = true;
+				if (this.textarea) this.textarea.disabled = true;
+				this.fields.forEach(f => f.setDisabled(true));
+			},
+
+			unmount: function() {
+				if (this.unsubscribe) this.unsubscribe();
+				clearInterval(this.clock);
+				this.unsubscribe = null;
+				this.host = null;
+				this.status = null;
+				this.live = null;
+				this.textarea = null;
+				this.viewLayer = null;
+				this.fields = [];
+			},
+		}),
+	};
+});
+//# sourceURL=src/plugins/panel.js
+</script>
+<script>
+// Control types for the panel plugin, by `type`. Each one builds the input
+// part of a control row:
+//
+//   render(spec, value, { commit, fail, run }) -> { el, input, setDisabled(bool) }
+//
+// `commit(value)` reports a new value (the panel validates and saves it);
+// `fail(message)` reports input that can't become a value at all; `run(args)`
+// queues a command (command types only). Inputs
+// commit on 'change', not on every keystroke, so one edit is one change.
+// Types with `layout: true` hold no value and get no label, badge or id.
+// An unknown type falls back to editing the value as raw JSON.
+define('plugins/panel/controls', ['lib/dom', 'plugins/panel/model'], (Dom, Model) => {
+	const { h } = Dom;
+
+	// Wraps one or more inputs so they can all be disabled together. The first
+	// one gets the row label.
+	const field = (el, inputs = [el]) => ({ el, input: inputs[0], setDisabled: (off) => inputs.forEach(i => { i.disabled = off; }) });
+
+	const numberAttrs = (spec) => {
+		const attrs = {};
+		for (const k of ['min', 'max', 'step']) if (typeof spec[k] === 'number') attrs[k] = String(spec[k]);
+		if (!attrs.step) attrs.step = spec.integer ? '1' : 'any';
+		return attrs;
+	};
+
+	const withUnit = (spec, el) => (spec.unit ? h('span', { class: 'panel-inline' }, el, h('span', { class: 'panel-unit' }, spec.unit)) : el);
+
+	const types = {
+		heading: { layout: true, render: (spec) => field(h('h3', { class: 'panel-heading' }, String(spec.label ?? '')), []) },
+
+		note: { layout: true, render: (spec) => field(h('p', { class: 'panel-note' }, String(spec.text ?? spec.label ?? '')), []) },
+
+		number: {
+			render(spec, value, { commit, fail }) {
+				const input = h('input', { type: 'number', inputmode: 'decimal', ...numberAttrs(spec) });
+				if (typeof value === 'number') input.value = String(value);
+				input.addEventListener('change', () => {
+					if (input.value === '') return fail('Enter a number.');
+					commit(Number(input.value));
+				});
+				return field(withUnit(spec, input), [input]);
+			},
+		},
+
+		slider: {
+			render(spec, value, { commit }) {
+				const input = h('input', { type: 'range', ...numberAttrs(spec) });
+				const out = h('output', { class: 'panel-unit' });
+				const show = () => { out.textContent = spec.unit ? `${input.value} ${spec.unit}` : input.value; };
+				// A range input can't be empty, so an unset value says so in words.
+				if (typeof value === 'number') {
+					input.value = String(value);
+					show();
+				} else out.textContent = '(not set)';
+				input.addEventListener('input', show);
+				input.addEventListener('change', () => commit(Number(input.value)));
+				return field(h('span', { class: 'panel-inline' }, input, out), [input]);
+			},
+		},
+
+		toggle: {
+			render(spec, value, { commit }) {
+				const input = h('input', { type: 'checkbox', class: 'panel-switch', role: 'switch' });
+				input.checked = value === true;
+				input.addEventListener('change', () => commit(input.checked));
+				return field(input);
+			},
+		},
+
+		select: {
+			render(spec, value, { commit }) {
+				const options = Model.optionsOf(spec);
+				const select = h('select', {});
+				const current = options.findIndex(o => Model.same(o.value, value));
+				// A value that isn't one of the options is shown, not silently replaced.
+				if (current === -1) {
+					select.appendChild(h('option', { value: '', disabled: '' }, value === undefined ? '— choose —' : `${Model.describe({}, value)} (not an option)`));
+				}
+				options.forEach((o, i) => select.appendChild(h('option', { value: String(i) }, o.label)));
+				select.value = current === -1 ? '' : String(current);
+				select.addEventListener('change', () => commit(options[Number(select.value)].value));
+				return field(select);
+			},
+		},
+
+		text: {
+			render(spec, value, { commit }) {
+				const input = h('input', { type: 'text', placeholder: String(spec.placeholder ?? '') });
+				input.value = typeof value === 'string' ? value : '';
+				input.addEventListener('change', () => commit(input.value));
+				return field(input);
+			},
+		},
+
+		textarea: {
+			render(spec, value, { commit }) {
+				const input = h('textarea', { rows: String(spec.rows || 4), placeholder: String(spec.placeholder ?? '') });
+				input.value = typeof value === 'string' ? value : '';
+				input.addEventListener('change', () => commit(input.value));
+				return field(input);
+			},
+		},
+	};
+
+	// A command: optional `fields` (controls whose values become the
+	// command's arguments, not stored in `values`) and a button. Pressing it
+	// calls `run(args)` once every field is valid; `run` asks for confirmation.
+	types.button = {
+		command: true,
+		render(spec, _value, { run }) {
+			const fieldSpecs = (Array.isArray(spec.fields) ? spec.fields : []).filter(f => Model.isObject(f) && typeof f.id === 'string');
+			const args = {};
+			const inputs = [];
+			const rows = fieldSpecs.map(f => {
+				const msg = h('div', { class: 'panel-msg' });
+				const setMessage = (text) => { msg.textContent = text || ''; };
+				if (f.default !== undefined) args[f.id] = f.default;
+				const sub = (types[f.type] || raw).render(f, f.default, {
+					commit: (v) => { args[f.id] = v; setMessage(Model.validate(f, v)); },
+					fail: (text) => { delete args[f.id]; setMessage(text); },
+				});
+				inputs.push(...(sub.input ? [sub.input] : []));
+				return { f, setMessage, el: h('label', { class: 'panel-arg' }, h('span', {}, String(f.label ?? f.id)), sub.el, msg) };
+			});
+
+			const button = h('button', { type: 'button', class: 'panel-run' }, String(spec.label ?? spec.id));
+			button.addEventListener('click', () => {
+				let ok = true;
+				for (const { f, setMessage } of rows) {
+					const v = args[f.id];
+					const error = v === undefined ? (f.required ? 'Required.' : null) : Model.validate(f, v);
+					setMessage(error);
+					if (error) ok = false;
+				}
+				if (ok) run({ ...args });
+			});
+			inputs.push(button);
+			return field(h('div', { class: 'panel-command-form' }, ...rows.map(r => r.el), button), inputs);
+		},
+	};
+
+	// Unknown types: edit the value as JSON, so nothing in the file is out of reach.
+	const raw = {
+		render(spec, value, { commit, fail }) {
+			const input = h('input', { type: 'text', class: 'panel-raw', title: `Unknown control type "${spec.type}": edit the value as JSON` });
+			input.value = value === undefined ? '' : JSON.stringify(value);
+			input.addEventListener('change', () => {
+				try {
+					commit(JSON.parse(input.value));
+				} catch (err) {
+					fail('Not valid JSON.');
+				}
+			});
+			return field(input);
+		},
+	};
+
+	return {
+		types,
+		get: (type) => types[type] || raw,
+	};
+});
+//# sourceURL=src/plugins/panel/controls.js
+</script>
+<script>
+// The panel and status file formats, as pure functions over parsed JSON
+// (no DOM, no I/O, no clock: callers pass `now`).
+// The format is described in src/plugins/panel/README.md.
+define('plugins/panel/model', [], () => {
+	const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+	const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+	// Keeps the file's own indentation (tabs, or the width of the first
+	// indented line) when it is written back. Two spaces otherwise.
+	const detectIndent = (text) => {
+		const m = /\n([ \t]+)\S/.exec(text || '');
+		if (!m) return 2;
+		return m[1][0] === '\t' ? '\t' : m[1].length;
+	};
+
+	// { doc } or { error }. A panel file must be a JSON object.
+	const parse = (text) => {
+		let doc;
+		try {
+			doc = JSON.parse(text || '{}');
+		} catch (err) {
+			return { error: `Invalid JSON: ${err.message}` };
+		}
+		if (!isObject(doc)) return { error: 'A panel file must contain a JSON object.' };
+		return { doc };
+	};
+
+	const serialize = (doc, indent = 2) => JSON.stringify(doc, null, indent) + '\n';
+
+	const controlsOf = (doc) => (Array.isArray(doc.controls) ? doc.controls.filter(isObject) : []);
+	const valuesOf = (doc) => (isObject(doc.values) ? doc.values : {});
+
+	// The value a control shows: the stored one, else its default.
+	const valueOf = (doc, spec) => {
+		const values = valuesOf(doc);
+		return spec.id in values ? values[spec.id] : spec.default;
+	};
+
+	// Select options may be plain values or { value, label }.
+	const optionsOf = (spec) => (Array.isArray(spec.options) ? spec.options : [])
+		.map(o => (isObject(o) ? { value: o.value, label: o.label ?? String(o.value) } : { value: o, label: String(o) }));
+
+	// How a value reads to a person: the option label for selects, plus the unit.
+	const describe = (spec, value) => {
+		if (value === undefined) return '(none)';
+		if (spec.type === 'select') {
+			const opt = optionsOf(spec).find(o => same(o.value, value));
+			if (opt) return opt.label;
+		}
+		if (spec.type === 'toggle' && typeof value === 'boolean') return value ? 'on' : 'off';
+		const text = typeof value === 'string' ? value : JSON.stringify(value);
+		return spec.unit ? `${text} ${spec.unit}` : text;
+	};
+
+	// Returns an error message, or null when `value` is acceptable for `spec`.
+	const validate = (spec, value) => {
+		switch (spec.type) {
+			case 'number':
+			case 'slider': {
+				if (typeof value !== 'number' || !Number.isFinite(value)) return 'Enter a number.';
+				if (typeof spec.min === 'number' && value < spec.min) return `Must be at least ${spec.min}.`;
+				if (typeof spec.max === 'number' && value > spec.max) return `Must be at most ${spec.max}.`;
+				if (spec.integer && !Number.isInteger(value)) return 'Must be a whole number.';
+				return null;
+			}
+			case 'toggle':
+				return typeof value === 'boolean' ? null : 'Must be on or off.';
+			case 'select':
+				return optionsOf(spec).some(o => same(o.value, value)) ? null : 'Not one of the options.';
+			case 'text':
+			case 'textarea': {
+				if (typeof value !== 'string') return 'Must be text.';
+				if (spec.required && !value.trim()) return 'Required.';
+				if (typeof spec.maxLength === 'number' && value.length > spec.maxLength) return `At most ${spec.maxLength} characters.`;
+				if (spec.pattern && value) {
+					let re;
+					try { re = new RegExp(`^(?:${spec.pattern})$`); } catch (err) { return `The panel's pattern is invalid: ${err.message}`; }
+					if (!re.test(value)) return spec.patternHint || 'Not in the expected format.';
+				}
+				return null;
+			}
+			default:
+				return null;
+		}
+	};
+
+	// A copy of `doc` with values[id] = value. Leaves the rest of the file,
+	// including keys this module doesn't know, untouched.
+	const withValue = (doc, id, value) => ({ ...doc, values: { ...valuesOf(doc), [id]: value } });
+
+	/* =====================================================================
+	   COMMANDS (in the panel file) AND STATUS FILES (written by a program)
+	===================================================================== */
+
+	const revOf = (doc) => (Number.isInteger(doc && doc.rev) ? doc.rev : 0);
+	const queueOf = (doc) => (Array.isArray(doc.queue) ? doc.queue.filter(e => isObject(e) && typeof e.id === 'string') : []);
+	const keepDays = (doc) => (typeof doc.keep_days === 'number' && doc.keep_days > 0 ? doc.keep_days : 7);
+	const MAX_QUEUE = 50;
+
+	// Every change to values or the queue bumps `rev`, so a program reading the
+	// file can tell whether anything changed since it last looked.
+	const bumpRev = (doc) => ({ ...doc, rev: revOf(doc) + 1 });
+
+	// c-20261022T072227-a0mqo8: sortable by time, unique enough across devices.
+	const newCommandId = (now, random = Math.random) => {
+		const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, '');
+		const tail = Array.from({ length: 6 }, () => '0123456789abcdefghijklmnopqrstuvwxyz'[Math.floor(random() * 36)]).join('');
+		return `c-${stamp}-${tail}`;
+	};
+
+	// Drops queue entries older than keep_days, and all but the newest MAX_QUEUE.
+	const prune = (doc, now) => {
+		if (!Array.isArray(doc.queue)) return doc;
+		const cutoff = now.getTime() - keepDays(doc) * 86400e3;
+		const kept = queueOf(doc).filter(e => !(Date.parse(e.at) < cutoff));
+		return { ...doc, queue: kept.slice(-MAX_QUEUE) };
+	};
+
+	const addCommand = (doc, command, args, now, id) => {
+		const next = bumpRev(doc);
+		const entry = { id, command, args, at: now.toISOString(), rev: next.rev };
+		return prune({ ...next, queue: [...queueOf(doc), entry] }, now);
+	};
+
+	// How recently the program wrote its status, against how often it says it does.
+	// state: 'live' | 'late' | 'offline' | 'unknown' (no heartbeat given) | 'none' (no time at all)
+	const liveness = (status, now) => {
+		const updated = status ? Date.parse(status.updated) : NaN;
+		if (Number.isNaN(updated)) return { state: 'none', age: null };
+		const age = Math.max(0, (now.getTime() - updated) / 1000);
+		const beat = status.heartbeat_seconds;
+		if (typeof beat !== 'number' || beat <= 0) return { state: 'unknown', age };
+		if (age <= 2 * beat + 60) return { state: 'live', age };
+		if (age <= 10 * beat + 60) return { state: 'late', age };
+		return { state: 'offline', age };
+	};
+
+	const acceptsList = (status, kind) => {
+		const a = status && isObject(status.accepts) ? status.accepts[kind] : undefined;
+		return Array.isArray(a) ? a : null;
+	};
+
+	// A setting as the program reports it in the status file, against the panel.
+	// state: 'ok' | 'pending' (the program hasn't seen this rev yet) | 'error'
+	//      | 'differs' | 'unhandled' | 'unknown' (not reported)
+	const valueState = (doc, status, spec) => {
+		if (!isObject(status)) return { state: 'unknown' };
+		const accepted = acceptsList(status, 'values');
+		if (accepted && !accepted.includes(spec.id)) return { state: 'unhandled' };
+
+		const reported = isObject(status.values) && spec.id in status.values ? status.values[spec.id] : undefined;
+		const wanted = valueOf(doc, spec);
+		const seen = typeof status.rev === 'number' ? status.rev >= revOf(doc) : null;
+		const error = isObject(status.errors) && status.errors[spec.id] != null ? String(status.errors[spec.id]) : null;
+
+		if (wanted !== undefined && reported !== undefined && same(wanted, reported)) return { state: 'ok', reported };
+		if (seen === false) return { state: 'pending', reported };
+		if (error) return { state: 'error', reported, message: error };
+		if (reported === undefined) return { state: 'unknown' };
+		return { state: 'differs', reported };
+	};
+
+	// A queued command's state: the program's own result state ('running',
+	// 'done', 'failed', 'rejected', or anything else it writes), else
+	// 'no-result' once it has seen the entry's rev, else 'waiting'.
+	const commandState = (entry, status) => {
+		const result = isObject(status) && isObject(status.results) ? status.results[entry.id] : undefined;
+		if (isObject(result) && typeof result.state === 'string') return { state: result.state, result };
+		if (isObject(status) && typeof status.rev === 'number' && typeof entry.rev === 'number' && status.rev >= entry.rev) return { state: 'no-result' };
+		return { state: 'waiting' };
+	};
+
+	const commandHandled = (status, command) => {
+		const accepted = acceptsList(status, 'commands');
+		return !accepted || accepted.includes(command);
+	};
+
+	// The queue entries for one command, newest first.
+	const historyOf = (doc, command) => queueOf(doc).filter(e => e.command === command).reverse();
+
+	return {
+		isObject, same, detectIndent, parse, serialize, controlsOf, valuesOf, valueOf, optionsOf, describe, validate, withValue,
+		revOf, queueOf, bumpRev, newCommandId, prune, addCommand, liveness, valueState, commandState, commandHandled, historyOf,
+	};
+});
+//# sourceURL=src/plugins/panel/model.js
+</script>
+<script>
+// Readouts for the "report" section of a status file: { label: entry }.
+// A plain string, number or boolean is shown as is (multi-line strings as a
+// preformatted block); an object with a known `type` gets a widget. Status
+// files come from another program, so everything is rendered as text,
+// never as HTML.
+define('plugins/panel/report', ['lib/dom', 'plugins/panel/model'], (Dom, Model) => {
+	const { h } = Dom;
+
+	// "40 s ago", "5 min ago", "3 h ago", "2 days ago".
+	const ago = (seconds) => {
+		if (seconds < 60) return `${Math.round(seconds)} s ago`;
+		if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+		if (seconds < 86400 * 2) return `${Math.round(seconds / 3600)} h ago`;
+		return `${Math.round(seconds / 86400)} days ago`;
+	};
+
+	// Local time, with the date unless it is today.
+	const when = (iso, now = new Date()) => {
+		const t = new Date(iso);
+		if (Number.isNaN(t.getTime())) return String(iso ?? '');
+		const time = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		return t.toDateString() === now.toDateString() ? time : `${t.toLocaleDateString()} ${time}`;
+	};
+
+	const text = (value) => (typeof value === 'string' && value.includes('\n')
+		? h('pre', { class: 'panel-pre' }, value)
+		: h('span', {}, typeof value === 'string' ? value : JSON.stringify(value)));
+
+	const widgets = {
+		// { "type": "meter", "value": 82, "min": 0, "max": 100, "unit": "%", "warn": 80 }
+		meter(entry) {
+			const min = typeof entry.min === 'number' ? entry.min : 0;
+			const max = typeof entry.max === 'number' ? entry.max : 100;
+			const meter = h('meter', { min: String(min), max: String(max), value: String(Number(entry.value) || 0) });
+			if (typeof entry.warn === 'number') { meter.high = entry.warn; meter.optimum = min; }
+			return h('span', { class: 'panel-inline' }, meter, h('span', {}, `${entry.value}${entry.unit ? ` ${entry.unit}` : ''}`));
+		},
+		// { "type": "time", "value": "2026-10-22T08:10:07Z" }
+		time(entry, now) {
+			const t = Date.parse(entry.value);
+			if (Number.isNaN(t)) return text(entry.value);
+			return h('span', { title: new Date(t).toString() }, `${when(entry.value, now)} (${ago(Math.max(0, (now - t) / 1000))})`);
+		},
+		// { "type": "list", "items": ["a", "b"] }
+		list: (entry) => h('ul', { class: 'panel-list' }, ...(Array.isArray(entry.items) ? entry.items : []).map(i => h('li', {}, typeof i === 'string' ? i : JSON.stringify(i)))),
+		// { "type": "text", "value": "..." }: always preformatted
+		text: (entry) => h('pre', { class: 'panel-pre' }, String(entry.value ?? '')),
+	};
+
+	const render = (entry, now = new Date()) => {
+		if (Model.isObject(entry) && widgets[entry.type]) return widgets[entry.type](entry, now);
+		if (entry !== null && typeof entry === 'object') return h('pre', { class: 'panel-pre' }, JSON.stringify(entry, null, 2));
+		return text(entry);
+	};
+
+	// The whole report as label/value rows.
+	const section = (report, now = new Date()) => h('div', { class: 'panel-report' },
+		...Object.entries(Model.isObject(report) ? report : {}).map(([label, entry]) =>
+			h('div', { class: 'panel-row' }, h('div', { class: 'panel-label' }, label), h('div', { class: 'panel-field' }, render(entry, now)))));
+
+	return { ago, when, render, section, widgets };
+});
+//# sourceURL=src/plugins/panel/report.js
 </script>
 <script>
 define('plugins/pdf', ['lib/dom', 'lib/fileTypes'], (Dom, FileTypes) => {
@@ -2410,9 +3471,9 @@ define('plugins/pdf', ['lib/dom', 'lib/fileTypes'], (Dom, FileTypes) => {
 <script>
 // Plugins in priority order: the first whose canHandle() matches wins.
 define('plugins/registry',
-	['plugins/image', 'plugins/pdf', 'plugins/markdown', 'plugins/text', 'plugins/unsupported'],
-	(Image, PDF, Markdown, Text, Unsupported) => {
-		const plugins = [Image, PDF, Markdown, Text, Unsupported];
+	['plugins/image', 'plugins/pdf', 'plugins/markdown', 'plugins/panel', 'plugins/text', 'plugins/unsupported'],
+	(Image, PDF, Markdown, Panel, Text, Unsupported) => {
+		const plugins = [Image, PDF, Markdown, Panel, Text, Unsupported];
 
 		return {
 			plugins,
@@ -3065,6 +4126,23 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			return ws.dbName;
 		},
 
+		// Listeners for onWrite(), called after every put, delete and clear.
+		_writeListeners: new Set(),
+
+		// Calls cb({ dbName, filename }) after each successful write in this tab
+		// (filename is null after clear). Returns an unsubscribe function.
+		// Other tabs learn of writes through app/crossTab.
+		onWrite(cb) {
+			this._writeListeners.add(cb);
+			return () => this._writeListeners.delete(cb);
+		},
+
+		_written(dbName, filename) {
+			for (const cb of [...this._writeListeners]) {
+				try { cb({ dbName, filename }); } catch (err) { console.error(err); }
+			}
+		},
+
 		// Every operation below takes an optional `dbName`, for callers that must
 		// keep writing to the workspace they started in after the user switches
 		// away (a delayed autosave, a push or pull still waiting on the network).
@@ -3121,14 +4199,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}
 		},
 
-		async put(note, dbName) {
-			return this._run(db => new Promise((resolve, reject) => {
+		async put(note, dbName = this.dbName) {
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).put(note);
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
 			}), 'Saving note', dbName);
+			this._written(dbName, note.filename);
 		},
 		async get(filename, dbName) {
 			return this._run(db => new Promise((resolve, reject) => {
@@ -3147,13 +4226,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}), 'Reading notes');
 		},
 		async delete(filename) {
-			return this._run(db => new Promise((resolve, reject) => {
+			const dbName = this.dbName;
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).delete(filename);
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-			}), 'Deleting note');
+			}), 'Deleting note', dbName);
+			this._written(dbName, filename);
 		},
 		async getAllKeys() {
 			return this._run(db => new Promise((resolve, reject) => {
@@ -3164,13 +4245,15 @@ define('storage/notesDb', ['model/config'], (Config) => {
 			}), 'Reading note list');
 		},
 		async clear() {
-			return this._run(db => new Promise((resolve, reject) => {
+			const dbName = this.dbName;
+			await this._run(db => new Promise((resolve, reject) => {
 				const tx = db.transaction(this.storeName, 'readwrite');
 				tx.objectStore(this.storeName).clear();
 				tx.oncomplete = () => resolve();
 				tx.onerror = () => reject(tx.error);
 				tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
-			}), 'Clearing local cache');
+			}), 'Clearing local cache', dbName);
+			this._written(dbName, null);
 		}
 	};
 
@@ -3184,10 +4267,16 @@ define('storage/notesDb', ['model/config'], (Config) => {
 // (export/pull/push/delete buttons).
 define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], (DOM, Sidebar, Status, Plugins) => {
 	let currentFilename = null;
+	// The view/edit choice carries over from file to file. A plugin with a
+	// preferredMode overrides it for its own file only, in modeOverride.
 	let isViewMode = false;
+	let modeOverride = null;
+	const viewMode = () => modeOverride ?? isViewMode;
 	let activePlugin = null;
+	// The open plugin's host (see actions/host), disposed with the plugin.
+	let activeHost = null;
 	let isFrozen = false;
-	let handlers = { onEdit() {}, onLeave() {} };
+	let handlers = { onEdit() {}, onLeave() {}, makeHost: () => null };
 
 	const setLayerVisible = (layer, isVisible) => {
 		layer.style.display = 'block';
@@ -3208,6 +4297,10 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	};
 
 	const unmountPlugin = () => {
+		if (activeHost) {
+			activeHost.dispose();
+			activeHost = null;
+		}
 		if (activePlugin && activePlugin.unmount) {
 			activePlugin.unmount();
 			activePlugin = null;
@@ -3215,9 +4308,11 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 	};
 
 	const Editor = {
-		// handlers: { onEdit(newContent), onLeave() }. onLeave runs whenever the
-		// open file is about to be replaced or closed, so pending edits get saved.
-		bind(h) { handlers = h; },
+		// handlers: { onEdit(newContent), onLeave(), makeHost(filename) }.
+		// onLeave runs whenever the open file is about to be replaced or closed,
+		// so pending edits get saved. makeHost returns the plugin's host, with
+		// an `api` for the plugin and `dispose()`.
+		bind(h) { handlers = { ...handlers, ...h }; },
 
 		currentFilename: () => currentFilename,
 		activePlugin: () => activePlugin,
@@ -3227,6 +4322,7 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 		reset() {
 			handlers.onLeave();
 			isViewMode = false;
+			modeOverride = null;
 			currentFilename = null;
 			document.title = 'gh-memo';
 
@@ -3272,19 +4368,24 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 			// previous plugin has already been unmounted but we avoid leaving activePlugin
 			// pointing to a half-initialised instance.
 
-			if (!plugin.supportedModes.includes('edit') && !isViewMode) isViewMode = true;
-			else if (!plugin.supportedModes.includes('view') && isViewMode) isViewMode = false;
+			modeOverride = plugin.preferredMode ? plugin.preferredMode === 'view' : null;
+			if (modeOverride === null) {
+				if (!plugin.supportedModes.includes('edit') && !isViewMode) isViewMode = true;
+				else if (!plugin.supportedModes.includes('view') && isViewMode) isViewMode = false;
+			}
 
 			// 3. PREPARE CHROME
 			setEditorChrome(true);
 			DOM.viewLayer.replaceChildren();
 			DOM.editLayer.replaceChildren();
 
-			// 4. PROVIDE SAVE HOOK
+			// 4. PROVIDE SAVE HOOK AND HOST
+			const host = handlers.makeHost(filename);
+			activeHost = host;
 			const saveCallback = (newContent) => handlers.onEdit(newContent);
 
 			// 5. MOUNT
-			await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback, { isViewMode });
+			await plugin.mount(filename, content, DOM.viewLayer, DOM.editLayer, saveCallback, { isViewMode: viewMode(), host: host ? host.api : null });
 			activePlugin = plugin;
 
 			Editor.applyModeVisibility();
@@ -3302,12 +4403,12 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 
 			if (plugin.supportedModes.includes('view') && plugin.supportedModes.includes('edit')) {
 				DOM.viewToggle.style.display = 'flex';
-				DOM.viewToggle.textContent = isViewMode ? '✏️' : '👁️';
+				DOM.viewToggle.textContent = viewMode() ? '✏️' : '👁️';
 			} else {
 				DOM.viewToggle.style.display = 'none';
 			}
 
-			if (isViewMode) {
+			if (viewMode()) {
 				setLayerVisible(DOM.editLayer, false);
 				setLayerVisible(DOM.viewLayer, true);
 			} else {
@@ -3320,10 +4421,11 @@ define('ui/editor', ['ui/refs', 'ui/sidebar', 'ui/status', 'plugins/registry'], 
 			const plugin = activePlugin;
 			if (!plugin || !plugin.supportedModes.includes('view') || !plugin.supportedModes.includes('edit')) return;
 
-			isViewMode = !isViewMode;
+			if (modeOverride === null) isViewMode = !isViewMode;
+			else modeOverride = !modeOverride;
 			Editor.applyModeVisibility();
 
-			if (plugin.onModeSwitch) await plugin.onModeSwitch(isViewMode);
+			if (plugin.onModeSwitch) await plugin.onModeSwitch(viewMode());
 		},
 
 		// Locks the editor because the open file was edited in another tab.
