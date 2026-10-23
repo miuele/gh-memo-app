@@ -81,14 +81,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	padding: 0 20px; border-bottom: 1px solid var(--border); font-weight: bold;
 	display: flex; justify-content: space-between; align-items: center; min-height: 50px; flex-shrink: 0;
 }
-#current-filename { line-height: 1; display: inline-flex; align-items: center; margin-right: auto; }
-#editor-header { gap: 10px; }
+#current-filename { line-height: 1; display: inline-flex; align-items: center; }
 /* Touch only: the 6px strip can't be found without hover, so touch devices
-   get a ☰ button and a visible, finger-wide strip. Keyed to the input type,
-   not the width, because most iPads are wider than the phone breakpoint. */
-#menu-btn { display: none; padding: 6px 10px; font-size: 18px; line-height: 1; flex-shrink: 0; }
+   get a visible, finger-wide strip. Keyed to the input type, not the width,
+   because most iPads are wider than the phone breakpoint. */
 @media (hover: none), (pointer: coarse) {
-	#menu-btn { display: inline-flex; }
 	#toggle-sidebar { width: 20px; cursor: default; background: rgba(0, 102, 204, 0.08); }
 }
 #editor-container { flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
@@ -332,7 +329,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 		<div id="main">
 			<div id="editor-header">
-				<button id="menu-btn" data-action="sidebar.toggle" title="Toggle Sidebar" aria-label="Toggle sidebar">☰</button>
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
 					<button id="save-btn" data-action="files.export" title="Download a copy of this file" style="display:none;">📥<span class="btn-label"> Export</span></button>
@@ -535,10 +531,10 @@ define('resources', [], () => ({
 // (ISO 8601), commit the git short hash ('-dirty' with uncommitted changes,
 // '' outside a checkout), and id, made of both, names the service worker's cache.
 define('buildInfo', [], () => {
-	const time = '2026-10-23T06:25:46Z';
-	const commit = 'bbd452a';
+	const time = '2026-10-23T06:34:18Z';
+	const commit = '27610da';
 	return {
-		id: '20261023T062546Z-bbd452a',
+		id: '20261023T063418Z-27610da',
 		time,
 		commit,
 		label: `Built ${time.slice(0, 10)} ${time.slice(11, 16)} UTC${commit ? ` · ${commit}` : ''}`,
