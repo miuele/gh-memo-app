@@ -343,11 +343,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
                 <select class="kc-provider">
                     <option value="github">GitHub</option>
                     <option value="dropbox">Dropbox</option>
+                    <option value="remotestorage">remoteStorage</option>
                 </select>
             </div>
             <!-- GitHub Auth -->
             <div class="form-group gh-only">
-                <label>Personal Access Token</label>
+                <label class="kc-token-label">Personal Access Token</label>
                 <div style="display: flex; gap: 6px; width: 100%;">
                     <input type="password" class="kc-token" placeholder="ghp_..." autocomplete="off" style="flex-grow: 1; min-width: 0;">
                     <button type="button" class="btn-token-toggle" style="white-space: nowrap;">Show</button>
@@ -381,11 +382,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
             <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12px;">
                 <select class="tree-keychain" style="padding: 4px;"></select>
                 <div class="tree-gh-only" style="display: flex; gap: 6px; align-items: center;">
-                    <input type="text" class="tree-owner" placeholder="Owner" style="width: 100px; padding: 4px;"> /
-                    <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
-                    <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
+                    <span class="tree-repo-fields" style="display: contents;">
+                        <input type="text" class="tree-owner" placeholder="Owner" style="width: 100px; padding: 4px;"> /
+                        <input type="text" class="tree-repo" placeholder="Repo" style="width: 120px; padding: 4px;">
+                        <input type="text" class="tree-branch" placeholder="Branch" style="width: 80px; padding: 4px;">
+                    </span>
                     <input type="text" class="tree-host" placeholder="Host" style="width: 150px; padding: 4px;">
-                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
+                    <label class="tree-commit-field" style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: #666; margin-left: 10px;">
                         <input type="checkbox" class="tree-askCommit" style="width: auto;"> Ask for commit msg
                     </label>
                 </div>
@@ -513,10 +516,10 @@ define('resources', [], () => ({
 // (ISO 8601), commit the git short hash ('-dirty' with uncommitted changes,
 // '' outside a checkout), and id, made of both, names the service worker's cache.
 define('buildInfo', [], () => {
-	const time = '2026-10-23T05:02:13Z';
-	const commit = 'bd61649-dirty';
+	const time = '2026-10-23T05:56:49Z';
+	const commit = '626fe2d';
 	return {
-		id: '20261023T050213Z-bd61649-dirty',
+		id: '20261023T055649Z-626fe2d',
 		time,
 		commit,
 		label: `Built ${time.slice(0, 10)} ${time.slice(11, 16)} UTC${commit ? ` · ${commit}` : ''}`,
@@ -1284,8 +1287,8 @@ define('actions/sync',
 				let commitMsg = null;
 				const kc = Config.activeKeychain;
 
-				// Guard: Only prompt if the toggle is on AND the provider is not Dropbox
-				if (Config.activeWorkspace.askForCommitMsg && kc && kc.provider !== 'dropbox') {
+				// Guard: Only prompt if the toggle is on AND the provider is GitHub (the only one with commits)
+				if (Config.activeWorkspace.askForCommitMsg && kc && (kc.provider || 'github') === 'github') {
 					const userMsg = prompt(`Enter commit message for ${filename}:`);
 					if (userMsg == null) return Status.show("Push cancelled.");
 					if (userMsg.trim()) commitMsg = userMsg.trim();
@@ -1341,8 +1344,12 @@ define('actions/workspaces',
 			const kcIds = Object.keys(Config.keychains);
 			if (kcIds.length === 0) return alert("Please create a Keychain first.");
 
-			const repoName = prompt('Enter Repository (e.g., rust-lang/cargo) or leave blank for Dropbox:');
-			if (repoName === null) return;
+			const input = prompt('Enter Repository (e.g., rust-lang/cargo), a remoteStorage URL (https://…/storage/), or leave blank for Dropbox:');
+			if (input === null) return;
+
+			// A URL is a remoteStorage storage URL, which goes in `host`.
+			const storageUrl = /^https?:\/\//i.test(input.trim()) ? input.trim() : '';
+			const repoName = storageUrl ? '' : input;
 
 			let owner = '';
 			let repo = repoName;
@@ -1352,7 +1359,10 @@ define('actions/workspaces',
 
 			// Auto-select the right keychain provider based on input
 			let targetKcId = kcIds[0];
-			if (!repoName) {
+			if (storageUrl) {
+				const rsKc = kcIds.find(id => Config.keychains[id].provider === 'remotestorage');
+				if (rsKc) targetKcId = rsKc;
+			} else if (!repoName) {
 				const dbxKc = kcIds.find(id => Config.keychains[id].provider === 'dropbox');
 				if (dbxKc) targetKcId = dbxKc;
 			} else {
@@ -1362,10 +1372,10 @@ define('actions/workspaces',
 
 			const id = 'ws_' + Date.now();
 			Config.workspaces[id] = {
-				name: repoName ? repoName : 'Dropbox Storage',
+				name: storageUrl ? 'remoteStorage' : repoName ? repoName : 'Dropbox Storage',
 				dbName: 'NotesDB_' + id,
 				keychainId: targetKcId,
-				host: 'https://api.github.com',
+				host: storageUrl || 'https://api.github.com',
 				owner: owner.trim(),
 				repo: repo.trim(),
 				branch: repoName ? 'main' : '',
@@ -2038,79 +2048,6 @@ define('lib/fileTypes', [], () => {
 //# sourceURL=src/lib/fileTypes.js
 </script>
 <script>
-// The files a Markdown note refers to, found without the Markdown engine
-// (which loads lazily), for plugins/markdown's references().
-//
-// images(content) lists image sources as written: ![alt](src),
-// reference-style images (![alt][label], ![label][], ![label] with a
-// [label]: src definition) and HTML <img src>. Fenced code blocks and code
-// spans are skipped. When in doubt it lists a source rather than missing
-// one: an extra entry only allows a read, while a missing one shows the
-// image as missing. tests/e2e/smoke.cjs checks it against marked.
-define('lib/mdRefs', [], () => {
-	const BRACKETED = String.raw`(?:\\.|[^\\\[\]]|\[(?:\\.|[^\\\[\]])*\])*`;
-	const TITLE = String.raw`(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\))`;
-	const DEST = String.raw`(?:<((?:\\.|[^\\<>\n])*)>|((?:\\.|[^\\\s()]|\((?:\\.|[^\\\s()])*\))*))`;
-
-	const INLINE_IMAGE = new RegExp(String.raw`!\[${BRACKETED}\]\(\s*${DEST}(?:\s+${TITLE})?\s*\)`, 'g');
-	const REF_IMAGE = new RegExp(String.raw`!\[(${BRACKETED})\](?:\[((?:\\.|[^\\\[\]])*)\])?`, 'g');
-	const DEFINITION = new RegExp(String.raw`^ {0,3}\[((?:\\.|[^\\\[\]])+)\]:[ \t]*\n?[ \t]*(?:<((?:\\.|[^\\<>\n])*)>|(\S+))`, 'gm');
-	const HTML_IMG = /<img\b[^>]*?\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
-	const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-	// A code span: matching backtick runs, not across a blank line.
-	const CODE_SPAN = /(`+)(?!`)((?:(?!\n[ \t]*\n)[\s\S])*?[^`])\1(?!`)/g;
-
-	const unescape = (s) => s.replace(/\\([!-/:-@[-`{-~])/g, '$1');
-	const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", '#39': "'" };
-	const decodeEntities = (s) => s.replace(/&(amp|lt|gt|quot|apos|#39);/g, (_, e) => ENTITIES[e]);
-	const label = (s) => s.trim().replace(/\s+/g, ' ').toLowerCase();
-	const blank = (s) => s.replace(/[^\n]/g, ' ');
-
-	// The text outside fenced code blocks (an unclosed fence runs to the end).
-	const withoutFences = (content) => {
-		const out = [];
-		let fence = null;
-		for (const line of content.split('\n')) {
-			const m = line.match(FENCE);
-			if (fence) {
-				if (m && m[1][0] === fence[0] && m[1].length >= fence.length && !line.slice(m[0].length).trim()) fence = null;
-				out.push('');
-			} else if (m && !(m[1][0] === '`' && line.slice(m[0].length).includes('`'))) {
-				fence = m[1];
-				out.push('');
-			} else out.push(line);
-		}
-		return out.join('\n');
-	};
-
-	const images = (content) => {
-		let text = withoutFences(String(content || '')).replace(CODE_SPAN, blank);
-		const found = [];
-
-		const defs = new Map();
-		for (const m of text.matchAll(DEFINITION)) {
-			const key = label(m[1]);
-			if (!defs.has(key)) defs.set(key, unescape(m[2] ?? m[3]));
-		}
-
-		text = text.replace(INLINE_IMAGE, (whole, angled, bare) => {
-			found.push(unescape(angled ?? bare ?? ''));
-			return blank(whole);
-		});
-		for (const m of text.matchAll(REF_IMAGE)) {
-			const src = defs.get(label(m[2] ? m[2] : m[1]));
-			if (src !== undefined) found.push(src);
-		}
-		for (const m of text.matchAll(HTML_IMG)) found.push(decodeEntities(m[1] ?? m[2] ?? m[3]));
-
-		return [...new Set(found.filter(Boolean))];
-	};
-
-	return { images };
-});
-//# sourceURL=src/lib/mdRefs.js
-</script>
-<script>
 define('lib/net', [], () => {
 	// Default ceiling for any single remote request (GitHub/Dropbox APIs).
 	// Chosen to comfortably cover slow mobile connections without leaving
@@ -2332,6 +2269,7 @@ define('model/forest', ['model/config', 'lib/path'], (Config, Path) => {
 	const computeTreeSig = (ws, kc) => {
 		const provider = kc ? kc.provider : 'github';
 		if (provider === 'dropbox') return `dropbox|${ws.keychainId}`;
+		if (provider === 'remotestorage') return `remotestorage|${(ws.host || '').trim().replace(/\/+$/, '')}`;
 		return `github|${ws.host}|${ws.owner}|${ws.repo}|${ws.branch}`;
 	};
 
@@ -4054,9 +3992,190 @@ define('remote/github', ['lib/net', 'lib/path', 'lib/fileTypes'], (Net, Path, Fi
 //# sourceURL=src/remote/github.js
 </script>
 <script>
+// remoteStorage provider (draft-dejong-remotestorage), strictly network
+// operations. Works with any remoteStorage server: the workspace's `host` is
+// the storage URL and the keychain holds a bearer token. No extensions are
+// used, so a refresh walks the folders, skipping any whose ETag is unchanged.
+define('remote/remotestorage', ['lib/net', 'lib/path', 'lib/fileTypes', 'lib/encoding'], (Net, Path, FileTypes, Encoding) => {
+	// Folder listings seen this session, keyed by folder URL:
+	// { etag, entries } where entries is the deep listing below that folder.
+	const folderCache = new Map();
+
+	const RemoteStorageService = {
+		/* =====================================================================
+		   AUXILIARY HELPERS
+		===================================================================== */
+
+		// The storage URL with exactly one trailing slash.
+		_storageUrl(workspace) {
+			const url = (workspace.host || '').trim().replace(/\/+$/, '');
+			if (!/^https?:\/\//.test(url)) throw new Error('Set the storage URL (https://…/storage/) for this remoteStorage workspace.');
+			return url + '/';
+		},
+
+		// Each path segment is encoded on its own, as in remote/github (C5).
+		_encodePath(path) {
+			return Path.cleanPath(path).split('/').filter(Boolean).map(encodeURIComponent).join('/');
+		},
+
+		_docUrl(workspace, filename) {
+			const root = Path.cleanPath(workspace.rootDir);
+			const full = root ? `${root}/${filename}` : filename;
+			return this._storageUrl(workspace) + this._encodePath(full);
+		},
+
+		_folderUrl(workspace, folder) {
+			const encoded = this._encodePath(folder);
+			return this._storageUrl(workspace) + (encoded ? encoded + '/' : '');
+		},
+
+		// Strong or weak, quoted or not: the bare version string.
+		_etag(res) {
+			const raw = res.headers.get('ETag');
+			return raw ? raw.replace(/^W\//, '').replace(/^"|"$/g, '') : null;
+		},
+
+		// remoteStorage defines status codes but not error bodies, so the message
+		// comes from the status; a server's own message is appended when present.
+		async _error(res) {
+			const body = await res.json().catch(() => ({}));
+			const detail = body && body.message ? ` (${body.message})` : '';
+			const messages = {
+				401: 'remoteStorage rejected the token. Check the keychain.',
+				403: 'Access denied by the remoteStorage server.',
+				404: 'Not found on the remoteStorage server.',
+				409: 'Path conflict: a folder name clashes with a file on the server.',
+				412: 'Conflict: Remote has newer changes. Please Pull first.',
+				413: 'File too large for the remoteStorage server.',
+				429: 'Too many requests. Try again in a minute.',
+				507: 'The remoteStorage account is over its quota.',
+			};
+			return new Error((messages[res.status] || `remoteStorage error: ${res.status}`) + detail);
+		},
+
+		_fetch(url, keychain, options = {}) {
+			if (!keychain || !keychain.token) throw new Error('Missing token in keychain.');
+			return Net.fetchWithTimeout(url, {
+				...options,
+				headers: { 'Authorization': `Bearer ${keychain.token}`, ...options.headers },
+				cache: 'no-store',
+			});
+		},
+
+		/* =====================================================================
+		   TREE OPERATIONS
+		===================================================================== */
+
+		// One folder listing, revalidated with If-None-Match when we have seen it.
+		// Returns { etag, items, cached } where cached means the server said 304.
+		async _listFolder(url, keychain) {
+			const known = folderCache.get(url);
+			const headers = known && known.etag ? { 'If-None-Match': `"${known.etag}"` } : {};
+			const res = await this._fetch(url, keychain, { headers });
+			if (res.status === 304 && known) return { ...known, cached: true };
+			if (res.status === 404) return { etag: null, items: {}, cached: false };   // empty folders are often 404
+			if (!res.ok) throw await this._error(res);
+			const body = await res.json();
+			return { etag: this._etag(res), items: (body && body.items) || {}, cached: false };
+		},
+
+		// The deep listing below a folder, relative to it. A subfolder whose ETag
+		// in the parent listing equals the one we cached is reused without a request.
+		async _walk(url, keychain, knownEtag) {
+			const known = folderCache.get(url);
+			if (known && knownEtag && known.etag === knownEtag) return known.entries;
+
+			const listing = await this._listFolder(url, keychain);
+			if (listing.cached) return listing.entries;
+
+			const entries = [];
+			for (const [name, item] of Object.entries(listing.items)) {
+				if (name.endsWith('/')) {
+					const sub = name.slice(0, -1);
+					const below = await this._walk(url + encodeURIComponent(sub) + '/', keychain, item.ETag);
+					for (const e of below) entries.push({ ...e, path: `${sub}/${e.path}` });
+				} else {
+					entries.push({ path: name, sha: item.ETag, type: 'blob', size: item['Content-Length'] || 0 });
+				}
+			}
+			folderCache.set(url, { etag: listing.etag, items: listing.items, entries });
+			return entries;
+		},
+
+		async getTree(workspace, keychain) {
+			const url = this._folderUrl(workspace, workspace.rootDir);
+
+			if (workspace.shallow) {
+				const listing = await this._listFolder(url, keychain);
+				const tree = Object.entries(listing.items).map(([name, item]) => name.endsWith('/')
+					? { path: name.slice(0, -1), sha: item.ETag, type: 'folder', size: 0 }
+					: { path: name, sha: item.ETag, type: 'blob', size: item['Content-Length'] || 0 });
+				return { tree, truncated: false };
+			}
+
+			return { tree: await this._walk(url, keychain, null), truncated: false };
+		},
+
+		/* =====================================================================
+		   FILE OPERATIONS
+		===================================================================== */
+
+		async getFile(filename, workspace, keychain) {
+			const res = await this._fetch(this._docUrl(workspace, filename), keychain);
+			if (!res.ok) throw await this._error(res);
+
+			if (!FileTypes.isTextFile(filename)) {
+				const rawBlob = await res.blob();
+				return new Blob([rawBlob], { type: FileTypes.mimeTypeFor(filename) });
+			}
+			return { content: Encoding.utoa(await res.text()), sha: this._etag(res) };
+		},
+
+		async putFile(filename, base64Content, sha, commitMsg, workspace, keychain) {
+			const binaryString = atob(base64Content);
+			const bytes = new Uint8Array(binaryString.length);
+			for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+
+			// Always conditional: update only the version we last saw, or create only if absent.
+			const res = await this._fetch(this._docUrl(workspace, filename), keychain, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': FileTypes.isTextFile(filename) ? 'text/plain; charset=utf-8' : FileTypes.mimeTypeFor(filename),
+					...(sha ? { 'If-Match': `"${sha}"` } : { 'If-None-Match': '*' }),
+				},
+				body: bytes,
+			});
+			if (!res.ok) throw await this._error(res);
+
+			const newSha = this._etag(res);
+			if (!newSha) throw new Error('The server did not return an ETag. Check that its CORS settings expose ETag.');
+			return { content: { sha: newSha } };
+		},
+
+		async deleteFile(filename, sha, workspace, keychain) {
+			const res = await this._fetch(this._docUrl(workspace, filename), keychain, {
+				method: 'DELETE',
+				headers: sha ? { 'If-Match': `"${sha}"` } : {},
+			});
+			if (!res.ok && res.status !== 404) throw await this._error(res);
+		},
+
+		fileUploadSizeLimit() {
+			return 100 * 1024 * 1024; // remoteStorage has no way to ask; servers answer 413 above their limit
+		},
+
+		// For tests: forget the folder listings seen so far.
+		_resetCache() { folderCache.clear(); },
+	};
+
+	return RemoteStorageService;
+});
+//# sourceURL=src/remote/remotestorage.js
+</script>
+<script>
 // Facade over the provider of the active workspace's keychain.
-define('remote/sync', ['model/config', 'remote/github', 'remote/dropbox'], (Config, GitHub, Dropbox) => {
-	const providers = { github: GitHub, dropbox: Dropbox };
+define('remote/sync', ['model/config', 'remote/github', 'remote/dropbox', 'remote/remotestorage'], (Config, GitHub, Dropbox, RemoteStorage) => {
+	const providers = { github: GitHub, dropbox: Dropbox, remotestorage: RemoteStorage };
 
 	const SyncService = {
 		get active() {
@@ -4718,10 +4837,15 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 			Status.show(copied ? 'Token copied.' : 'Copy failed: select the token and copy it by hand.', !copied);
 		});
 
+		// GitHub and remoteStorage both use a pasted token; only the wording differs.
+		const tokenLabelEl = card.querySelector('.kc-token-label');
 		const toggleVisibility = () => {
 			const isDbx = providerEl.value === 'dropbox';
+			const isRs = providerEl.value === 'remotestorage';
 			card.querySelectorAll('.dbx-only').forEach(el => el.style.display = isDbx ? 'flex' : 'none');
 			card.querySelectorAll('.gh-only').forEach(el => el.style.display = isDbx ? 'none' : 'flex');
+			tokenLabelEl.textContent = isRs ? 'Bearer Token' : 'Personal Access Token';
+			tokenEl.placeholder = isRs ? 'token from the server' : 'ghp_...';
 		};
 		providerEl.addEventListener('change', toggleVisibility);
 		toggleVisibility();
@@ -4763,8 +4887,11 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		const titleEl = groupEl.querySelector('.tree-title');
 
 		// Set dynamic title
+		const rsTitle = (host) => `🗃️ remoteStorage ${host || '(No Storage URL)'}`;
 		if (sig.startsWith('github|')) {
 		    titleEl.textContent = `🐙 ${refWs.owner || '(No Owner)'} / ${refWs.repo || '(No Repo)'}`;
+		} else if (sig.startsWith('remotestorage|')) {
+		    titleEl.textContent = rsTitle(refWs.host);
 		} else {
 		    titleEl.textContent = `🗄️ Dropbox Storage`;
 		}
@@ -4784,12 +4911,20 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 		}
 		selectKc.value = refWs.keychainId || '';
 
-		// Visibility Toggle for Dropbox
-		const toggleGhVisibility = () => {
+		// Visibility Toggle: Dropbox needs no origin fields, remoteStorage only the storage URL
+		const providerOf = () => {
 			const selectedKcId = selectKc.value;
-			const provider = selectedKcId && Config.keychains[selectedKcId]
+			return selectedKcId && Config.keychains[selectedKcId]
 				? Config.keychains[selectedKcId].provider : 'github';
+		};
+		const toggleGhVisibility = () => {
+			const provider = providerOf();
+			const isRs = provider === 'remotestorage';
 			ghContainer.style.display = (provider === 'dropbox') ? 'none' : 'flex';
+			groupEl.querySelector('.tree-repo-fields').style.display = isRs ? 'none' : 'contents';
+			groupEl.querySelector('.tree-commit-field').style.display = isRs ? 'none' : 'flex';
+			hostEl.placeholder = isRs ? 'Storage URL (https://…/storage/)' : 'Host';
+			hostEl.style.width = isRs ? '320px' : '150px';
 		};
 		toggleGhVisibility();
 
@@ -4819,7 +4954,10 @@ define('ui/settings', ['ui/refs', 'ui/status', 'lib/dom', 'lib/path', 'model/con
 			updateTreeTitle();
 		});
 		branchEl.addEventListener('input', e => wsIds.forEach(id => Config.workspaces[id].branch = e.target.value));
-		hostEl.addEventListener('input', e => wsIds.forEach(id => Config.workspaces[id].host = e.target.value));
+		hostEl.addEventListener('input', e => {
+			wsIds.forEach(id => Config.workspaces[id].host = e.target.value);
+			if (providerOf() === 'remotestorage') titleEl.textContent = rsTitle(e.target.value);
+		});
 		commitToggle.addEventListener('change', e => wsIds.forEach(id => Config.workspaces[id].askForCommitMsg = e.target.checked));
 
 		// Origin edits change the tree signature, which keys the tree's pins.
