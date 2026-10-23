@@ -40,10 +40,12 @@ body {
 	overflow-x: hidden; white-space: nowrap; flex-shrink: 0;
 }
 #sidebar.collapsed { width: 0; border-right: none; }
+/* A real <button>: iOS Safari doesn't deliver taps on a plain <div> to the
+   click listener on document unless it has cursor: pointer. */
 #toggle-sidebar {
-	width: 6px; cursor: col-resize; background: transparent; border: none;
-	transition: background 0.2s; height: 100%; z-index: 10; position: relative;
-	margin: 0; padding: 0; flex-shrink: 0;
+	display: block; width: 6px; cursor: col-resize; background: transparent; border: none;
+	border-radius: 0; transition: background 0.2s; height: 100%; z-index: 10; position: relative;
+	margin: 0; padding: 0; flex-shrink: 0; -webkit-tap-highlight-color: transparent;
 }
 #toggle-sidebar:hover { background: rgba(0, 102, 204, 0.2); border-right: 2px solid var(--accent); }
 .sidebar-header {
@@ -79,7 +81,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	padding: 0 20px; border-bottom: 1px solid var(--border); font-weight: bold;
 	display: flex; justify-content: space-between; align-items: center; min-height: 50px; flex-shrink: 0;
 }
-#current-filename { line-height: 1; display: inline-flex; align-items: center; }
+#current-filename { line-height: 1; display: inline-flex; align-items: center; margin-right: auto; }
+#editor-header { gap: 10px; }
+/* Touch only: the 6px strip can't be found without hover, so touch devices
+   get a ☰ button and a visible, finger-wide strip. Keyed to the input type,
+   not the width, because most iPads are wider than the phone breakpoint. */
+#menu-btn { display: none; padding: 6px 10px; font-size: 18px; line-height: 1; flex-shrink: 0; }
+@media (hover: none), (pointer: coarse) {
+	#menu-btn { display: inline-flex; }
+	#toggle-sidebar { width: 20px; cursor: default; background: rgba(0, 102, 204, 0.08); }
+}
 #editor-container { flex-grow: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
 #view-toggle {
 	position: absolute; bottom: 20px; right: 20px; width: 56px; height: 56px;
@@ -206,7 +217,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	background: #fafafa;
 }
 .profile-card.active { border-color: var(--accent); background: #f0f7ff; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 15px; }
 .form-group { display: flex; flex-direction: column; }
 .form-group label { font-size: 12px; font-weight: bold; margin-bottom: 4px; color: #555; }
 .form-group input { 
@@ -224,6 +235,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 	border-color: var(--accent) !important;
 	background: #f0f7ff !important;
 }
+/* Settings rows wrap at every width, so a narrow panel (an iPad in portrait
+   next to the sidebar) never clips fields inside the tree group's overflow: hidden. */
+.tree-gh-only { flex-wrap: wrap; }
+.mount-row { flex-wrap: wrap; gap: 10px; }
+.mount-row > div:first-child { flex-wrap: wrap; min-width: 0; }
+.ws-rootDir { min-width: 120px; }
+.mount-row > div:last-child { margin-left: auto !important; }
 /* Symlink edit-mode toggle label */
 .symlink-mode-label {
 	display: flex; align-items: center; gap: 10px;
@@ -310,10 +328,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 			<ul id="file-list"></ul>
 		</div>
 
-		<div id="toggle-sidebar" data-action="sidebar.toggle" title="Toggle Sidebar"></div>
+		<button id="toggle-sidebar" data-action="sidebar.toggle" title="Toggle Sidebar" aria-label="Toggle sidebar"></button>
 
 		<div id="main">
 			<div id="editor-header">
+				<button id="menu-btn" data-action="sidebar.toggle" title="Toggle Sidebar" aria-label="Toggle sidebar">☰</button>
 				<span id="current-filename">No file selected</span>
 				<div style="display: flex; gap: 10px;">
 					<button id="save-btn" data-action="files.export" title="Download a copy of this file" style="display:none;">📥<span class="btn-label"> Export</span></button>
@@ -516,10 +535,10 @@ define('resources', [], () => ({
 // (ISO 8601), commit the git short hash ('-dirty' with uncommitted changes,
 // '' outside a checkout), and id, made of both, names the service worker's cache.
 define('buildInfo', [], () => {
-	const time = '2026-10-23T05:56:49Z';
-	const commit = '626fe2d';
+	const time = '2026-10-23T06:25:46Z';
+	const commit = 'bbd452a';
 	return {
-		id: '20261023T055649Z-626fe2d',
+		id: '20261023T062546Z-bbd452a',
 		time,
 		commit,
 		label: `Built ${time.slice(0, 10)} ${time.slice(11, 16)} UTC${commit ? ` · ${commit}` : ''}`,
