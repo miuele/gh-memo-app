@@ -536,10 +536,10 @@ define('resources', [], () => ({
 // (ISO 8601), commit the git short hash ('-dirty' with uncommitted changes,
 // '' outside a checkout), and id, made of both, names the service worker's cache.
 define('buildInfo', [], () => {
-	const time = '2026-10-25T12:29:04Z';
-	const commit = '8542681';
+	const time = '2026-10-28T04:19:53Z';
+	const commit = '0c6d9d5';
 	return {
-		id: '20261025T122904Z-8542681',
+		id: '20261028T041953Z-0c6d9d5',
 		time,
 		commit,
 		label: `Built ${time.slice(0, 10)} ${time.slice(11, 16)} UTC${commit ? ` · ${commit}` : ''}`,
@@ -762,24 +762,58 @@ define('actions/files',
 			const filename = Editor.currentFilename();
 			if (!filename) return;
 			await Files.flushPendingEdit();
-			const note = await DBService.get(filename);
+			const dbName = DBService.dbName;
+			const note = await DBService.get(filename, dbName);
 			if (!note) return;
 
-			const msg = note.last_synced_sha ? `Delete ${filename} from local AND remote?` : `Delete ${filename} locally?`;
+			// A file listed by Refresh but never pulled is deleted remotely, as of the
+			// listed version (D13); one never pushed, or deleted remotely, only locally.
+			const remoteSha = note.last_synced_sha || note.remote_sha;
+			const msg = note.last_synced_sha ? `Delete ${filename} from local AND remote?`
+				: remoteSha ? `Delete ${filename} from remote?${note.is_dirty ? ' Your local edits are discarded too.' : ''}`
+				: `Delete ${filename} locally?`;
 			if (!confirm(msg)) return;
 
+			// Editing a file being deleted is not expected: freeze it here and in
+			// other tabs. The freeze is advisory; an edit that lands anyway is kept.
+			Editor.freeze();
+			Tabs.post({ type: Tabs.DELETE_STARTED, dbName, filename });
 			try {
-				if (note.last_synced_sha) {
+				let kept = false;
+				if (remoteSha) {
 					Status.show(`Deleting ${filename} remotely...`);
-					await SyncService.deleteFile(filename, note.last_synced_sha);
+					await SyncService.deleteFile(filename, remoteSha);
+					// Remove the note only if it still holds what was confirmed; an
+					// edit saved meanwhile stays, as a local-only note. Blobs are
+					// compared by size and type: typing never changes them.
+					const same = (a, b) => a instanceof Blob
+						? b instanceof Blob && a.size === b.size && a.type === b.type
+						: a === b;
+					const { put } = await DBService.rewriteAll(notes => {
+						const current = notes.find(n => n.filename === filename);
+						if (!current) return {};
+						if (same(current.content, note.content)) return { delete: [filename] };
+						return { put: [{ ...current, last_synced_sha: null, remote_sha: null, is_dirty: true }] };
+					}, dbName);
+					kept = Boolean(put);
+				} else {
+					await DBService.delete(filename);
 				}
-				await DBService.delete(filename);
-				Editor.reset();
-				history.replaceState(null, null, window.location.pathname);
 				Tabs.post({ type: Tabs.SIDEBAR_REFRESH });
 				FileList.render();
-				Status.show('File deleted successfully.');
+				const shown = Editor.currentFilename() === filename;
+				if (kept) {
+					if (shown) await Files.open(filename, true);  // unfreezes
+					Status.show(`Deleted ${filename} remotely. Edits made since are kept locally.`);
+				} else {
+					if (shown) {
+						Editor.reset();
+						history.replaceState(null, null, window.location.pathname);
+					}
+					Status.show('File deleted successfully.');
+				}
 			} catch (err) {
+				if (Editor.currentFilename() === filename) await Files.open(filename, true);
 				Status.show(`Error: ${err.message}`, true);
 			}
 		},
@@ -1796,8 +1830,8 @@ define('app/boot',
 // Reacts to messages from other tabs of the app, and tells them about this
 // tab's writes to the local cache.
 define('app/crossTab',
-	['model/config', 'lib/tabChannel', 'storage/notesDb', 'ui/editor', 'ui/fileList', 'ui/status', 'actions/host'],
-	(Config, Tabs, DBService, Editor, FileList, Status, Host) => ({
+	['model/config', 'lib/tabChannel', 'storage/notesDb', 'ui/editor', 'ui/fileList', 'ui/status', 'actions/host', 'actions/files'],
+	(Config, Tabs, DBService, Editor, FileList, Status, Host, Files) => ({
 	install() {
 		// Plugin views in other tabs may show this file (see actions/host).
 		DBService.onWrite(({ dbName, filename }) => Tabs.post({ type: Tabs.NOTE_WRITTEN, dbName, filename }));
@@ -1811,6 +1845,14 @@ define('app/crossTab',
 			const ws = Config.activeWorkspace;
 			if (message.type === Tabs.LOCAL_EDIT && ws && ws.dbName === message.dbName && Editor.currentFilename() === message.filename) {
 				if (Editor.freeze()) Status.show(`⚠️ Edited in another tab.`, true);
+			}
+
+			// Another tab is deleting the file open here: save what was typed, then
+			// lock this editor. Advisory only; Files.remove keeps an edit that lands anyway.
+			if (message.type === Tabs.DELETE_STARTED && ws && ws.dbName === message.dbName && Editor.currentFilename() === message.filename) {
+				Editor.freeze();
+				Files.flushPendingEdit();
+				Status.show(`⚠️ Being deleted in another tab.`, true);
 			}
 		});
 	},
@@ -2319,6 +2361,7 @@ define('lib/tabChannel', [], () => {
 		SIDEBAR_REFRESH: 'SIDEBAR_REFRESH',
 		LOCAL_EDIT: 'LOCAL_EDIT',
 		NOTE_WRITTEN: 'NOTE_WRITTEN',
+		DELETE_STARTED: 'DELETE_STARTED',
 
 		post(message) { get().postMessage(message); },
 		onMessage(handler) { get().onmessage = (event) => handler(event.data); },
